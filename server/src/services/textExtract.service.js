@@ -15,13 +15,22 @@ export const extractText = async (buffer, mimeType) => {
 
     if (mimeType === 'application/pdf') {
       const parser = new PDFParse({ data: buffer });
+
       try {
         const data = await parser.getText();
         extractedText = data.text || '';
+
+        console.log('\n========== PDF DEBUG ==========');
+        console.log('PDF TEXT LENGTH:', extractedText.length);
+        console.log('PDF TEXT PREVIEW:');
+        console.log(extractedText.substring(0, 500));
+        console.log('===============================\n');
+
       } finally {
         await parser.destroy();
       }
-    } else if (mimeType === 'text/plain') {
+    }
+    else if (mimeType === 'text/plain') {
       extractedText = buffer.toString('utf-8');
     } else if (mimeType.startsWith('image/')) {
       // Images (PNG, JPG, JPEG) are out-of-scope for OCR, return empty string as per task.md
