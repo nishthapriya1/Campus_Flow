@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-display: 'Outfit', sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    @apply bg-slate-950 text-slate-100 min-h-screen overflow-x-hidden selection:bg-indigo-500/30 selection:text-indigo-200;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
+      radial-gradient(at 50% 50%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply tracking-tight text-white font-semibold;
+  }
+}
+
+/* Glassmorphism utility classes */
+.glass-panel {
+  @apply bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-xl shadow-black/10;
+}
+
+.glass-panel-interactive {
+  @apply bg-slate-900/40 hover:bg-slate-900/70 backdrop-blur-md border border-slate-800/60 hover:border-indigo-500/30 rounded-2xl shadow-lg transition-all duration-300 hover:shadow-indigo-500/5 hover:-translate-y-0.5;
+}
+
+.glass-card {
+  @apply bg-slate-900/80 backdrop-blur-lg border border-slate-800 rounded-3xl shadow-2xl;
+}
+
+.glass-input {
+  @apply bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all duration-200;
+}
+
+.glass-btn-primary {
+  @apply bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+.glass-btn-secondary {
+  @apply bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-slate-200 hover:text-white font-medium px-5 py-2.5 rounded-xl transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+}
+
+.glass-btn-danger {
+  @apply bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 hover:border-rose-600 text-rose-200 hover:text-white font-medium px-5 py-2.5 rounded-xl transition-all duration-200 active:scale-[0.98];
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-slate-950;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+}
+
+/* React Big Calendar Custom overrides */
+.rbc-calendar {
+  @apply text-slate-200 font-sans;
+}
+.rbc-header {
+  @apply text-slate-400 font-medium py-3 border-slate-800/80 !important;
+  font-family: var(--font-display) !important;
+}
+.rbc-time-view, .rbc-month-view, .rbc-time-content, .rbc-time-header {
+  @apply border-slate-800/80 !important;
+}
+.rbc-month-row, .rbc-day-bg, .rbc-time-slot {
+  @apply border-slate-800/50 !important;
+}
+.rbc-today {
+  @apply bg-indigo-500/5 !important;
+}
+.rbc-off-range-bg {
+  @apply bg-slate-950/40 !important;
+}
+.rbc-event {
+  @apply bg-indigo-600/90 border border-indigo-500 text-white rounded-lg px-2.5 py-1 text-xs shadow-sm !important;
+}
+.rbc-show-more {
+  @apply text-indigo-400 hover:text-indigo-300 font-medium bg-transparent !important;
+}
+.rbc-toolbar button {
+  @apply border border-slate-800 bg-slate-900/60 text-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-all duration-150 !important;
+}
+.rbc-toolbar button.rbc-active {
+  @apply bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/10 !important;
+}
+.rbc-time-header-content {
+  @apply border-slate-800/80 !important;
+}
+
+/* Scroll-driven or simple loading micro-animations */
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.5; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(0.95); opacity: 0.5; }
+}
+
+.pulse-ring-active {
+  animation: pulse-ring 2s infinite ease-in-out;
+}

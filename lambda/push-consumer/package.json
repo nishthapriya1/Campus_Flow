@@ -1,0 +1,8 @@
+{
+  "name": "push-consumer",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "mongoose": "^9.7.0"
+  }
+}
