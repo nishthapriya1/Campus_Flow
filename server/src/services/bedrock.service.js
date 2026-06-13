@@ -1,7 +1,160 @@
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { bedrockClient, isAwsConfigured } from '../config/aws.js';
 
-const MODEL_ID = 'anthropic.claude-3-haiku-20240307-v1:0';
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-6';
+
+/**
+ * Clean text and generate a dynamic notice summary from the actual document content.
+ */
+const generateDynamicMockSummary = (text) => {
+  if (!text || text.trim() === '') {
+    return 'Notice summary is currently unavailable.';
+  }
+  const cleanText = text.replace(/\s+/g, ' ').trim();
+  const sentences = cleanText.split(/[.!?]\s+/).filter(s => s.trim().length > 10);
+  let summaryBody = sentences.slice(0, 3).join('. ');
+  if (summaryBody && !summaryBody.endsWith('.')) {
+    summaryBody += '.';
+  }
+  return `[MOCK AI SUMMARY] ${summaryBody || cleanText.substring(0, 150) + '...'}`;
+};
+
+/**
+ * Extract a suitable title line from the actual document content.
+ */
+const generateDynamicMockTitle = (text) => {
+  if (!text || text.trim() === '') {
+    return 'Notice Update';
+  }
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+  const forbidden = ['NOTICE', 'BIRLA', 'INSTITUTE', 'TECHNOLOGY', 'MESRA', 'RANCHI', 'DEPARTMENT', 'ATTENTION', 'COPY TO', 'WWW.'];
+  const candidate = lines.find(l => {
+    const upper = l.toUpperCase();
+    return l.length > 12 && l.length < 80 && !forbidden.some(word => upper.includes(word));
+  });
+  if (candidate) {
+    return candidate;
+  }
+  if (lines[0]) {
+    return lines[0].length > 60 ? lines[0].substring(0, 57) + '...' : lines[0];
+  }
+  return 'Notice Update';
+};
+
+/**
+ * Extract date mentions from the notice text.
+ */
+const extractDeadlinesFromText = (text) => {
+  const deadlines = [];
+  const cleanText = text.replace(/\s+/g, ' ');
+  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const words = cleanText.split(' ');
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i].toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (months.includes(word)) {
+      let day = '';
+      if (i > 0) {
+        const prev = words[i-1].replace(/[^0-9]/g, '');
+        if (prev && parseInt(prev) > 0 && parseInt(prev) <= 31) {
+          day = prev;
+        }
+      }
+      if (!day && i < words.length - 1) {
+        const next = words[i+1].replace(/[^0-9]/g, '');
+        if (next && parseInt(next) > 0 && parseInt(next) <= 31) {
+          day = next;
+        }
+      }
+      let year = '2026';
+      if (i < words.length - 2) {
+        const yearCand = words[i+2].replace(/[^0-9]/g, '');
+        if (yearCand && yearCand.length === 4) {
+          year = yearCand;
+        }
+      } else if (i > 1) {
+        const yearCand = words[i-2].replace(/[^0-9]/g, '');
+        if (yearCand && yearCand.length === 4) {
+          year = yearCand;
+        }
+      }
+      if (day) {
+        const monthIndex = months.indexOf(word) % 12;
+        const formattedDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (!deadlines.includes(formattedDate)) {
+          deadlines.push(formattedDate);
+        }
+      }
+    }
+  }
+  const isoMatch = cleanText.match(/\b\d{4}-\d{2}-\d{2}\b/g);
+  if (isoMatch) {
+    isoMatch.forEach(d => {
+      if (!deadlines.includes(d)) deadlines.push(d);
+    });
+  }
+  return deadlines;
+};
+
+/**
+ * Generates structured notice metadata dynamically from the text.
+ */
+const generateDynamicMockAnalysis = (text) => {
+  const lowercaseText = text.toLowerCase();
+  let category = 'administrative';
+  if (lowercaseText.includes('exam') || lowercaseText.includes('test') || lowercaseText.includes('semester') || lowercaseText.includes('registration') || lowercaseText.includes('ec319') || lowercaseText.includes('vlsi')) {
+    category = 'academic';
+  } else if (lowercaseText.includes('placement') || lowercaseText.includes('job') || lowercaseText.includes('career') || lowercaseText.includes('recruitment')) {
+    category = 'placement';
+  } else if (lowercaseText.includes('holiday') || lowercaseText.includes('closed')) {
+    category = 'administrative';
+  } else if (lowercaseText.includes('fest') || lowercaseText.includes('sports') || lowercaseText.includes('event')) {
+    category = 'event';
+  }
+
+  let urgency = 'medium';
+  if (lowercaseText.includes('critical') || lowercaseText.includes('urgent') || lowercaseText.includes('immediately') || lowercaseText.includes('late fee') || lowercaseText.includes('warning')) {
+    urgency = 'critical';
+  } else if (lowercaseText.includes('exam') || lowercaseText.includes('placement') || lowercaseText.includes('deadline') || lowercaseText.includes('ec319') || lowercaseText.includes('vlsi')) {
+    urgency = 'high';
+  } else if (lowercaseText.includes('holiday') || lowercaseText.includes('sports')) {
+    urgency = 'low';
+  }
+
+  const title = generateDynamicMockTitle(text);
+  const summary = generateDynamicMockSummary(text);
+  const deadlines = extractDeadlinesFromText(text);
+
+  const actions = [];
+  if (category === 'academic') {
+    actions.push('Verify exam schedule');
+    if (lowercaseText.includes('registration')) {
+      actions.push('Complete semester registration');
+    }
+  } else if (category === 'placement') {
+    actions.push('Register on placement portal');
+    actions.push('Review eligibility criteria');
+  } else if (category === 'administrative') {
+    if (lowercaseText.includes('fee') || lowercaseText.includes('payment')) {
+      actions.push('Pay outstanding dues');
+    } else {
+      actions.push('Review administrative guidelines');
+    }
+  } else if (category === 'event') {
+    actions.push('Register for the event');
+  }
+  if (actions.length === 0) {
+    actions.push('Review notice details');
+  }
+
+  return {
+    title,
+    summary,
+    deadlines,
+    actions,
+    urgency,
+    category
+  };
+};
 
 /**
  * Invokes Bedrock model with Claude 3 Messages API structure.
@@ -66,22 +219,8 @@ export const summarizeNotice = async (text) => {
   }
 
   if (!isAwsConfigured) {
-    // Generate simulated summary for mock mode
     console.log('Mock Bedrock: Simulating notice summary...');
-    // Simple heuristic summary
-    const lowercaseText = text.toLowerCase();
-    let topic = 'general campus updates';
-    if (lowercaseText.includes('exam') || lowercaseText.includes('test')) {
-      topic = 'upcoming examination schedules and submission guidelines';
-    } else if (lowercaseText.includes('holiday') || lowercaseText.includes('closed')) {
-      topic = 'academic calendar holidays and campus closure details';
-    } else if (lowercaseText.includes('fee') || lowercaseText.includes('payment')) {
-      topic = 'tuition fee payment deadlines and financial regulations';
-    } else if (lowercaseText.includes('workshop') || lowercaseText.includes('seminar')) {
-      topic = 'extracurricular skill development workshops and registration';
-    }
-
-    return `[MOCK AI SUMMARY] This notice outlines ${topic}. Key actions include verifying deadlines and completing registrations as required. Please refer to the full notice document for exact venue details and instructions.`;
+    return generateDynamicMockSummary(text);
   }
 
   const systemPrompt = `You are a helpful university administration assistant. Summarize the following notice text in plain language, keeping the summary strictly under 150 words. Ensure you preserve all important dates, deadlines, and direct action items. Translate or write the summary in the same language as the detected language of the source text.`;
@@ -97,19 +236,7 @@ export const summarizeNotice = async (text) => {
     return await invokeClaude({ system: systemPrompt, messages, maxTokens: 300 });
   } catch (err) {
     console.warn('Bedrock notice summary failed, falling back to mock summary:', err.message);
-    const lowercaseText = text.toLowerCase();
-    let topic = 'general campus updates';
-    if (lowercaseText.includes('exam') || lowercaseText.includes('test')) {
-      topic = 'upcoming examination schedules and submission guidelines';
-    } else if (lowercaseText.includes('holiday') || lowercaseText.includes('closed')) {
-      topic = 'academic calendar holidays and campus closure details';
-    } else if (lowercaseText.includes('fee') || lowercaseText.includes('payment')) {
-      topic = 'tuition fee payment deadlines and financial regulations';
-    } else if (lowercaseText.includes('workshop') || lowercaseText.includes('seminar')) {
-      topic = 'extracurricular skill development workshops and registration';
-    }
-
-    return `[MOCK AI SUMMARY] This notice outlines ${topic}. Key actions include verifying deadlines and completing registrations as required. Please refer to the full notice document for exact venue details and instructions.`;
+    return generateDynamicMockSummary(text);
   }
 };
 
@@ -306,51 +433,7 @@ export const analyzeNotice = async (text) => {
 
   if (!isAwsConfigured) {
     console.log('Mock Bedrock: Analyzing notice...');
-    const lowercaseText = text.toLowerCase();
-    let topic = 'general campus updates';
-    let urgency = 'medium';
-    let category = 'administrative';
-    let deadlines = [];
-    let actions = [];
-
-    if (lowercaseText.includes('exam') || lowercaseText.includes('test')) {
-      topic = 'upcoming examination schedules and submission guidelines';
-      urgency = 'high';
-      category = 'academic';
-      const d = new Date();
-      d.setDate(d.getDate() + 5);
-      deadlines.push(d.toISOString().split('T')[0]);
-      actions.push('Verify exam schedule');
-    } else if (lowercaseText.includes('holiday') || lowercaseText.includes('closed')) {
-      topic = 'academic calendar holidays and campus closure details';
-      urgency = 'low';
-      category = 'administrative';
-    } else if (lowercaseText.includes('fee') || lowercaseText.includes('payment')) {
-      topic = 'tuition fee payment deadlines and financial regulations';
-      urgency = 'critical';
-      category = 'administrative';
-      const d = new Date();
-      d.setDate(d.getDate() + 2);
-      deadlines.push(d.toISOString().split('T')[0]);
-      actions.push('Pay tuition fees');
-    } else if (lowercaseText.includes('placement') || lowercaseText.includes('job') || lowercaseText.includes('career')) {
-      topic = 'placement recruitment drive details';
-      urgency = 'high';
-      category = 'placement';
-      const d = new Date();
-      d.setDate(d.getDate() + 3);
-      deadlines.push(d.toISOString().split('T')[0]);
-      actions.push('Register on placement portal');
-    }
-
-    return {
-      title: 'Notice Update',
-      summary: `[MOCK AI SUMMARY] This notice outlines ${topic}. Key actions include verifying deadlines and completing registrations.`,
-      deadlines,
-      actions,
-      urgency,
-      category
-    };
+    return generateDynamicMockAnalysis(text);
   }
 
   const systemPrompt = `You are a helpful university administration assistant. You extract intelligence from university notices.
@@ -408,51 +491,7 @@ Do NOT include any explanations or markdown formatting (except a code block). Re
         throw apiErr;
       }
       console.warn('Bedrock analyze notice failed, falling back to mock analysis:', apiErr.message);
-      const lowercaseText = text.toLowerCase();
-      let topic = 'general campus updates';
-      let urgency = 'medium';
-      let category = 'administrative';
-      let deadlines = [];
-      let actions = [];
-
-      if (lowercaseText.includes('exam') || lowercaseText.includes('test')) {
-        topic = 'upcoming examination schedules and submission guidelines';
-        urgency = 'high';
-        category = 'academic';
-        const d = new Date();
-        d.setDate(d.getDate() + 5);
-        deadlines.push(d.toISOString().split('T')[0]);
-        actions.push('Verify exam schedule');
-      } else if (lowercaseText.includes('holiday') || lowercaseText.includes('closed')) {
-        topic = 'academic calendar holidays and campus closure details';
-        urgency = 'low';
-        category = 'administrative';
-      } else if (lowercaseText.includes('fee') || lowercaseText.includes('payment')) {
-        topic = 'tuition fee payment deadlines and financial regulations';
-        urgency = 'critical';
-        category = 'administrative';
-        const d = new Date();
-        d.setDate(d.getDate() + 2);
-        deadlines.push(d.toISOString().split('T')[0]);
-        actions.push('Pay tuition fees');
-      } else if (lowercaseText.includes('placement') || lowercaseText.includes('job') || lowercaseText.includes('career')) {
-        topic = 'placement recruitment drive details';
-        urgency = 'high';
-        category = 'placement';
-        const d = new Date();
-        d.setDate(d.getDate() + 3);
-        deadlines.push(d.toISOString().split('T')[0]);
-        actions.push('Register on placement portal');
-      }
-
-      return {
-        title: 'Notice Update',
-        summary: `[MOCK AI SUMMARY] This notice outlines ${topic}. Key actions include verifying deadlines and completing registrations.`,
-        deadlines,
-        actions,
-        urgency,
-        category
-      };
+      return generateDynamicMockAnalysis(text);
     }
   } catch (err) {
     const error = new Error('BEDROCK_PARSE_ERROR');
