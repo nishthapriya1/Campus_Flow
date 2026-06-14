@@ -26,6 +26,11 @@ const runTests = async () => {
     const studentUser = await User.findOne({ email: 'student@campusflow.com' });
     if (!studentUser) throw new Error('Student user student@campusflow.com not found in database.');
 
+    // Clean up old notices to prevent pagination test issues
+    console.log('Cleaning up notices collection...');
+    await Notice.deleteMany({});
+    console.log('✔ Notices collection cleared.');
+
     // 1. Authenticate Student
     console.log('Test 1: Student Login...');
     const studentLoginRes = await fetch(`${API_URL}/auth/login`, {
@@ -670,7 +675,7 @@ const runTests = async () => {
       const critNotif = await Notification.findOne({
         userId: dbEvent.userId,
         alertType: 'notice_critical',
-      });
+      }).sort({ createdAt: -1 });
 
       if (!critNotif) {
         throw new Error('❌ Fail: No Notification document was created for the critical notice.');
@@ -869,8 +874,10 @@ const runTests = async () => {
     // Verify MongoDB contains a guardian_risk notification (with snsMessageId)
     const dbGuardianRisk = await Notification.findOne({
       userId: studentUser._id,
-      alertType: 'guardian_risk'
-    });
+      alertType: 'guardian_risk',
+      severity: 'high'
+    }).sort({ createdAt: -1 });
+
     if (!dbGuardianRisk) {
       throw new Error('❌ Fail: No guardian_risk Notification document created in MongoDB.');
     }
@@ -884,7 +891,7 @@ const runTests = async () => {
     const dbGuardianOpp = await Notification.findOne({
       userId: studentUser._id,
       alertType: 'guardian_opportunity'
-    });
+    }).sort({ createdAt: -1 });
     if (!dbGuardianOpp) {
       throw new Error('❌ Fail: No guardian_opportunity Notification document created in MongoDB.');
     }

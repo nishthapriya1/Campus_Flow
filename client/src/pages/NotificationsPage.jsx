@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import client from '../api/client';
 import { useToast } from '../context/ToastContext';
+import { useNotification } from '../context/NotificationContext';
 
 export const NotificationsPage = () => {
   const { addToast } = useToast();
+  const { unreadCount, setUnreadCount, fetchUnreadCount } = useNotification();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
   const limit = 20;
 
   const fetchNotifications = async (currentPage) => {
@@ -40,7 +41,7 @@ export const NotificationsPage = () => {
       setNotifications((prev) =>
         prev.map((n) => (n._id === id ? { ...n, read: true, readAt: res.data.readAt } : n))
       );
-      setUnreadCount((c) => Math.max(0, c - 1));
+      await fetchUnreadCount();
     } catch (err) {
       console.error('Failed to mark notification as read:', err.message);
     }
@@ -52,7 +53,7 @@ export const NotificationsPage = () => {
 
       await client.patch('/notifications/read-all');
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-      setUnreadCount(0);
+      await fetchUnreadCount();
       addToast('All notifications marked as read.', 'success');
     } catch (err) {
       console.error('Failed to mark all as read:', err.message);
@@ -148,7 +149,20 @@ export const NotificationsPage = () => {
                     </span>
                     <h2 className="font-bold text-white text-sm sm:text-base ml-1">{notif.title}</h2>
                   </div>
-                  <span className="text-xs text-slate-500">{formatRelativeTime(notif.createdAt)}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-500">{formatRelativeTime(notif.createdAt)}</span>
+                    {!notif.read && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMarkAsRead(notif._id);
+                        }}
+                        className="px-2.5 py-1 bg-indigo-600/90 hover:bg-indigo-600 text-[10px] font-bold text-white rounded-lg transition-all duration-150 shadow-md shadow-indigo-600/10 hover:scale-[1.02] active:scale-[0.98]"
+                      >
+                        Mark as Read
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <p className="text-slate-300 text-xs sm:text-sm mt-1">{notif.shortMessage}</p>

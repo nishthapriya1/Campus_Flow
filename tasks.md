@@ -25,7 +25,7 @@ Pre-seeded accounts:
   - **Effort:** 20 min
   - **Dependencies:** Task 1
 
-- [ ] 4. Configure AWS clients — Create `src/config/aws.js` exporting pre-configured `S3Client`, `BedrockRuntimeClient`, and `SNSClient` using env vars. Create the S3 bucket (`campusflow-notices`) with private ACL. Enable Bedrock model access for `anthropic.claude-3-haiku-20240307-v1:0` in the AWS console. Create the SNS standard topic (`campusflow-notifications`) and copy the Topic ARN to `.env` as `SNS_TOPIC_ARN`. Generate VAPID keys with `npx web-push generate-vapid-keys` and add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL` to `.env`.
+- [ ] 4. Configure AWS clients — Create `src/config/aws.js` exporting pre-configured `S3Client`, `BedrockRuntimeClient`, and `SNSClient` using env vars. Create the S3 bucket (`campusflow-notices`) with private ACL. Enable Bedrock model access for `amazon.nova-lite-v1:0` in the AWS console. Create the SNS standard topic (`campusflow-notifications`) and copy the Topic ARN to `.env` as `SNS_TOPIC_ARN`. Generate VAPID keys with `npx web-push generate-vapid-keys` and add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL` to `.env`.
   - **Owner:** Developer A
   - **Effort:** 45 min
   - **Dependencies:** Task 1
@@ -85,7 +85,7 @@ Pre-seeded accounts:
   - **Effort:** 20 min
   - **Dependencies:** Task 1
 
-- [ ] 16. Build Bedrock summarization service — `src/services/bedrock.service.js`. Export `summarizeNotice(text) → Promise<string>`. Use InvokeModelCommand, model `anthropic.claude-3-haiku-20240307-v1:0`, Messages API. Prompt: summarize in ≤150 words, preserve dates/action items, match source language. `max_tokens: 300`.
+- [ ] 16. Build Bedrock summarization service — `src/services/bedrock.service.js`. Export `summarizeNotice(text) → Promise<string>`. Use InvokeModelCommand, model `amazon.nova-lite-v1:0`, Messages API. Prompt: summarize in ≤150 words, preserve dates/action items, match source language. `max_tokens: 300`.
   - **Owner:** Developer A
   - **Effort:** 30 min
   - **Dependencies:** Task 4
@@ -308,7 +308,7 @@ Pre-seeded accounts:
 ---
 <!-- Wave 13: Notice Intelligence (Req 9) -->
 
-- [ ] 60. Extend Bedrock analyzeNotice service — In `bedrock.service.js`, export `analyzeNotice(text) → Promise<NoticeAnalysis>`. Prompt instructs Claude to return strict JSON: `{ title, summary, deadlines: ["YYYY-MM-DD"], actions: [string], urgency: "critical"|"high"|"medium"|"low", category: "academic"|"event"|"administrative"|"placement" }`. Set `max_tokens: 600`. Validate the parsed response shape; on parse failure throw `BEDROCK_PARSE_ERROR` so the pipeline falls back to `urgency: "unknown"`. Implements Req 9.1.
+- [ ] 60. Extend Bedrock analyzeNotice service — In `bedrock.service.js`, export `analyzeNotice(text) → Promise<NoticeAnalysis>`. Prompt instructs Bedrock to return strict JSON: `{ title, summary, deadlines: ["YYYY-MM-DD"], actions: [string], urgency: "critical"|"high"|"medium"|"low", category: "academic"|"event"|"administrative"|"placement" }`. Set `max_tokens: 600`. Validate the parsed response shape; on parse failure throw `BEDROCK_PARSE_ERROR` so the pipeline falls back to `urgency: "unknown"`. Implements Req 9.1.
   - **Owner:** Developer A
   - **Effort:** 40 min
   - **Dependencies:** Task 16
@@ -326,7 +326,7 @@ Pre-seeded accounts:
 ---
 <!-- Wave 14: Guardian AI (Req 10) -->
 
-- [ ] 63. Build Bedrock Guardian AI service — In `bedrock.service.js`, export `runGuardianAnalysis({ events, studyPlan, notices }) → Promise<GuardianReport>`. System prompt instructs Claude to act as an academic risk detector operating only on provided data (no hallucination). Return strict JSON: `{ alerts: [{ alertType, severity, title, detailedReason, recommendedAction }], dailyPlan: string, opportunities: [string], onTrack: boolean, summary: string }`. Set `max_tokens: 1024`, timeout 20 seconds via `Promise.race`. On parse failure: throw `BEDROCK_PARSE_ERROR`. Implements Req 10.1, 10.2, 10.6.
+- [ ] 63. Build Bedrock Guardian AI service — In `bedrock.service.js`, export `runGuardianAnalysis({ events, studyPlan, notices }) → Promise<GuardianReport>`. System prompt instructs Bedrock to act as an academic risk detector operating only on provided data (no hallucination). Return strict JSON: `{ alerts: [{ alertType, severity, title, detailedReason, recommendedAction }], dailyPlan: string, opportunities: [string], onTrack: boolean, summary: string }`. Set `max_tokens: 1024`, timeout 20 seconds via `Promise.race`. On parse failure: throw `BEDROCK_PARSE_ERROR`. Implements Req 10.1, 10.2, 10.6.
   - **Owner:** Developer A
   - **Effort:** 50 min
   - **Dependencies:** Task 16

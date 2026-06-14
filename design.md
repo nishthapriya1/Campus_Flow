@@ -2,7 +2,7 @@
 
 ## Overview
 
-Campus Flow is an AI-powered campus assistant that consolidates academic schedules, institutional notices, deadline reminders, and a conversational study assistant into a single web application. The MVP is scoped for a 48-hour hackathon, built by a 2-person team using React + Tailwind CSS on the frontend, Node.js + Express on the backend, MongoDB Atlas for persistence, Amazon S3 for file storage, Amazon Bedrock (Claude 3 Haiku) for all AI capabilities, Amazon SNS as the notification event bus, AWS Lambda as the push-delivery consumer, and the Web Push API + Service Workers for browser push notifications that work even when the tab is closed.
+Campus Flow is an AI-powered campus assistant that consolidates academic schedules, institutional notices, deadline reminders, and a conversational study assistant into a single web application. The MVP is scoped for a 48-hour hackathon, built by a 2-person team using React + Tailwind CSS on the frontend, Node.js + Express on the backend, MongoDB Atlas for persistence, Amazon S3 for file storage, Amazon Bedrock (Amazon Nova Lite) for all AI capabilities, Amazon SNS as the notification event bus, AWS Lambda as the push-delivery consumer, and the Web Push API + Service Workers for browser push notifications that work even when the tab is closed.
 
 ---
 
@@ -36,7 +36,7 @@ Campus Flow is an AI-powered campus assistant that consolidates academic schedul
         ▼                      ▼              ▼        ▼
 ┌──────────────┐  ┌──────────────────┐  ┌────────┐  ┌──────────────────┐
 │ MongoDB Atlas│  │   Amazon S3      │  │Bedrock │  │   Amazon SNS     │
-│  (cloud)     │  │ (notice files)   │  │(Claude)│  │ campusflow-notif.│
+│  (cloud)     │  │ (notice files)   │  │ (Nova) │  │ campusflow-notif.│
 └──────────────┘  └──────────────────┘  └────────┘  └────────┬─────────┘
                                                               │ triggers
                                                               ▼
@@ -57,7 +57,7 @@ Campus Flow is an AI-powered campus assistant that consolidates academic schedul
 | Backend | Node.js 20 + Express 4 | Single process, single server instance |
 | Database | MongoDB Atlas (M0 free tier) | Shared cluster, connection via Mongoose |
 | File Storage | Amazon S3 (single bucket) | Private bucket, pre-signed URLs for reads |
-| AI | Amazon Bedrock — `anthropic.claude-3-haiku-20240307-v1:0` | Low-latency, cost-effective |
+| AI | Amazon Bedrock — `amazon.nova-lite-v1:0` | Low-latency, cost-effective |
 | Notification Bus | Amazon SNS (`campusflow-notifications`) | Express publishes; Lambda subscribes |
 | Push Delivery | AWS Lambda (`campusflow-push-consumer`) | Receives SNS events, sends Web Push |
 | Browser Push | Web Push API + Service Worker + VAPID | Works when tab is closed |
@@ -544,7 +544,7 @@ runGuardianAnalysis({ events, studyPlan, notices })       → Promise<GuardianRe
   //                   onTrack: boolean, summary: string }
 ```
 
-Model: `anthropic.claude-3-haiku-20240307-v1:0` (Messages API via Bedrock Runtime)
+Model: `amazon.nova-lite-v1:0` (Messages API via Bedrock Runtime)
 
 #### Reminder Scheduler (`src/services/reminder.scheduler.js`)
 
@@ -567,7 +567,7 @@ startScheduler() → void
     {
       "Effect": "Allow",
       "Action": ["bedrock:InvokeModel"],
-      "Resource": "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
+      "Resource": "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0"
     },
     {
       "Effect": "Allow",

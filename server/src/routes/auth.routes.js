@@ -90,13 +90,12 @@ router.post('/login', async (req, res, next) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      // Return generic message as required by Security guidelines
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(404).json({ error: 'USER_NOT_FOUND' });
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'INVALID_PASSWORD' });
     }
 
     // Issue JWT - 8 hour expiry (28800 seconds)

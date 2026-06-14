@@ -109,36 +109,30 @@ router.post('/generate', async (req, res, next) => {
     }
 
     // 3. Process replacement and history cap rules (Property 4)
-    // Find active plan to archive
-    const activePlan = await StudyPlan.findOne({
+    // Archive all existing active plans for this user
+    await StudyPlan.updateMany(
+      { userId: req.user.userId, status: 'active' },
+      { $set: { status: 'archived', archivedAt: new Date() } }
+    );
+
+    // Maintain a maximum of 5 archived plans
+    const archivedCount = await StudyPlan.countDocuments({
       userId: req.user.userId,
-      status: 'active',
+      status: 'archived',
     });
 
-    if (activePlan) {
-      // Get count of existing archived plans
-      const archivedCount = await StudyPlan.countDocuments({
+    if (archivedCount > 5) {
+      const excessCount = archivedCount - 5;
+      const oldestArchivedPlans = await StudyPlan.find({
         userId: req.user.userId,
         status: 'archived',
-      });
+      })
+        .sort({ archivedAt: 1 })
+        .limit(excessCount);
 
-      // Maintain a maximum of 5 replaced/archived plans
-      if (archivedCount >= 5) {
-        const oldestArchived = await StudyPlan.findOne({
-          userId: req.user.userId,
-          status: 'archived',
-        }).sort({ archivedAt: 1 }); // oldest first
-        
-        if (oldestArchived) {
-          await StudyPlan.findByIdAndDelete(oldestArchived._id);
-          console.log(`Deleted oldest archived study plan ${oldestArchived._id} to enforce the 5-plan cap.`);
-        }
-      }
-
-      // Archive active plan
-      activePlan.status = 'archived';
-      activePlan.archivedAt = new Date();
-      await activePlan.save();
+      const idsToDelete = oldestArchivedPlans.map((p) => p._id);
+      await StudyPlan.deleteMany({ _id: { $in: idsToDelete } });
+      console.log(`Deleted ${excessCount} oldest archived study plans to enforce the 5-plan cap.`);
     }
 
     // 4. Create and save new active study plan
@@ -167,7 +161,7 @@ router.get('/active', async (req, res, next) => {
     const activePlan = await StudyPlan.findOne({
       userId: req.user.userId,
       status: 'active',
-    });
+    }).sort({ createdAt: -1 });
 
     if (!activePlan) {
       return res.status(404).json({ error: 'No active study plan found' });

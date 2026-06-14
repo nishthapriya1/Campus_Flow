@@ -25,6 +25,7 @@ export const extractText = async (buffer, mimeType) => {
         console.log('PDF TEXT PREVIEW:');
         console.log(extractedText.substring(0, 500));
         console.log('===============================\n');
+        
 
       } finally {
         await parser.destroy();

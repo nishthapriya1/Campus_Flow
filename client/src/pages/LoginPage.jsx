@@ -23,7 +23,15 @@ export const LoginPage = () => {
       login(token, user);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.error || 'Unable to log in. Please check your credentials.');
+      const status = err.response?.status;
+      const errorCode = err.response?.data?.error;
+      if (status === 404 || errorCode === 'USER_NOT_FOUND') {
+        setError('USER_NOT_FOUND');
+      } else if (status === 401 || errorCode === 'INVALID_PASSWORD') {
+        setError('Incorrect password. Please try again.');
+      } else {
+        setError('Unable to sign in at the moment. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
@@ -52,7 +60,27 @@ export const LoginPage = () => {
 
         {error && (
           <div className="bg-rose-950/30 border border-rose-800/80 text-rose-200 px-4 py-3 rounded-xl text-sm" role="alert">
-            {error}
+            {error === 'USER_NOT_FOUND' ? (
+              <div className="flex flex-col gap-3">
+                <span>Account not found. Please register before signing in.</span>
+                <div className="flex items-center gap-3">
+                  <Link
+                    to="/register"
+                    className="inline-flex items-center justify-center gap-1.5 w-fit px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-600/90 text-white hover:bg-indigo-500 transition-all"
+                  >
+                    Register Now
+                  </Link>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Don't have an account?{' '}
+                  <Link to="/register" className="font-semibold text-indigo-400 hover:text-indigo-300 hover:underline">
+                    Register here
+                  </Link>
+                </p>
+              </div>
+            ) : (
+              error
+            )}
           </div>
         )}
 

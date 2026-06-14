@@ -6,6 +6,8 @@ import { connectDB } from './config/db.js';
 import { startScheduler, startDeadlineScheduler } from './services/reminder.scheduler.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { seedDatabase } from './scripts/seed.js';
+import User from './models/User.js';
+import mongoose from 'mongoose';
 
 // Load routes
 import authRouter from './routes/auth.routes.js';
@@ -17,6 +19,13 @@ import chatRouter from './routes/chat.routes.js';
 import notificationRouter from './routes/notification.routes.js';
 import guardianRouter from './routes/guardian.routes.js';
 import pushRouter from './routes/push.routes.js';
+import attendanceRouter from './routes/attendance.routes.js';
+import focusRouter from './routes/focus.routes.js';
+import schedulingRouter from './routes/scheduling.routes.js';
+import routineRouter from './routes/routine.routes.js';
+import lifeCompanionRouter from './routes/lifeCompanion.routes.js';
+
+
 
 dotenv.config();
 
@@ -26,7 +35,14 @@ const PORT = process.env.PORT || 4000;
 // Enable CORS
 app.use(
   cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:5174', 'http://127.0.0.1:5174'],
+    origin: [
+      'http://localhost:5173', 'http://127.0.0.1:5173',
+      'http://localhost:5174', 'http://127.0.0.1:5174',
+      'http://localhost:5175', 'http://127.0.0.1:5175',
+      'http://localhost:5176', 'http://127.0.0.1:5176',
+      'http://localhost:5177', 'http://127.0.0.1:5177',
+      'http://localhost:5178', 'http://127.0.0.1:5178'
+    ],
     credentials: true,
   })
 );
@@ -48,6 +64,13 @@ app.use('/api/chat', chatRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/guardian', guardianRouter);
 app.use('/api/push', pushRouter);
+app.use('/api/attendance', attendanceRouter);
+app.use('/api/focus', focusRouter);
+app.use('/api/scheduling', schedulingRouter);
+app.use('/api/routine', routineRouter);
+app.use('/api/life-companion', lifeCompanionRouter);
+
+
 
 // Serve static React production build assets if in production mode (Task 59)
 if (process.env.NODE_ENV === 'production') {
@@ -66,8 +89,14 @@ const startServer = async () => {
   // Connect to DB
   await connectDB();
 
-  // Auto-seed mock database on startup
-  await seedDatabase();
+  // Auto-seed mock database on startup if database is empty/unseeded
+  const adminExists = await User.findOne({ email: 'admin@campusflow.com' });
+  if (!adminExists) {
+    console.log('Seeded database not detected. Running database seeder...');
+    await seedDatabase();
+  } else {
+    console.log('Database already seeded. Skipping seeder to preserve development data.');
+  }
 
   // Start the background cron job for deadline reminders
   startScheduler();
@@ -75,6 +104,8 @@ const startServer = async () => {
 
   app.listen(PORT, () => {
     console.log(`Campus Flow API Server is running on port ${PORT}`);
+    console.log("MODEL_ID =", process.env.BEDROCK_MODEL_ID);
+    console.log("AWS_REGION =", process.env.AWS_REGION);
   });
 };
 

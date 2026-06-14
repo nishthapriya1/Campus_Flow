@@ -25,6 +25,7 @@ export const DashboardPage = () => {
   const [events, setEvents] = useState([]);
   const [notices, setNotices] = useState([]);
   const [studyPlan, setStudyPlan] = useState(null);
+  const [attendance, setAttendance] = useState([]);
 
   const fetchData = async () => {
     if (!user || user.role !== 'student') {
@@ -34,12 +35,13 @@ export const DashboardPage = () => {
     setLoading(true);
     const now = new Date();
 
-    // Fetch the 4 sources in parallel using Promise.allSettled (Task 36)
+    // Fetch the 5 sources in parallel using Promise.allSettled (Task 36)
     const results = await Promise.allSettled([
       client.get('/reminders/pending'),
       client.get(`/events?from=${now.toISOString()}`),
       client.get('/notices?page=1&limit=5'),
       client.get('/studyplans/active'),
+      client.get('/attendance'),
     ]);
 
     // Handle reminders
@@ -70,6 +72,13 @@ export const DashboardPage = () => {
     } else {
       // 404 from active plan is normal, don't crash
       setStudyPlan(null);
+    }
+
+    // Handle attendance
+    if (results[4].status === 'fulfilled') {
+      setAttendance(results[4].value.data || []);
+    } else {
+      console.error('Failed to load attendance:', results[4].reason);
     }
 
     setLoading(false);
@@ -322,6 +331,98 @@ export const DashboardPage = () => {
               </div>
             )}
           </div>
+
+          {/* Attendance Overview Widget */}
+          {user?.role === 'student' && (
+            <div className="glass-panel p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2" />
+                  </svg>
+                  Attendance Overview
+                </h2>
+                <Link to="/attendance" className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 hover:underline">
+                  View Tracker &rarr;
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                {/* Overall Percentage Progress Circle */}
+                <div className="flex flex-col items-center justify-center p-4 bg-slate-950/40 rounded-2xl border border-slate-800/60 md:col-span-1 text-center">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Overall</span>
+                  <span className={`text-3xl font-extrabold mt-1 tracking-tight ${
+                    (() => {
+                      const totalConducted = attendance.reduce((sum, s) => sum + s.conducted, 0);
+                      const totalAttended = attendance.reduce((sum, s) => sum + s.attended, 0);
+                      const pct = totalConducted === 0 ? 100 : (totalAttended / totalConducted) * 100;
+                      return pct >= 75 ? 'text-emerald-400' : pct >= 65 ? 'text-amber-400' : 'text-rose-400';
+                    })()
+                  }`}>
+                    {(() => {
+                      const totalConducted = attendance.reduce((sum, s) => sum + s.conducted, 0);
+                      const totalAttended = attendance.reduce((sum, s) => sum + s.attended, 0);
+                      return (totalConducted === 0 ? 100 : (totalAttended / totalConducted) * 100).toFixed(1);
+                    })()}%
+                  </span>
+                  <span className="text-[10px] text-slate-400 mt-1.5 font-medium">
+                    {attendance.reduce((sum, s) => sum + s.attended, 0)} / {attendance.reduce((sum, s) => sum + s.conducted, 0)} classes
+                  </span>
+                </div>
+
+                {/* Risky subjects list */}
+                <div className="md:col-span-2 space-y-2.5">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Top Risky Subjects (&lt; 75%)</span>
+                  {(() => {
+                    const risky = attendance.filter(s => {
+                      const pct = s.conducted === 0 ? 100 : (s.attended / s.conducted) * 100;
+                      return pct < 75;
+                    });
+
+                    if (risky.length === 0) {
+                      return (
+                        <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold flex items-center gap-1.5">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          All subjects are safe! Excellent work.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        {risky.slice(0, 2).map((sub) => {
+                          const pct = sub.conducted === 0 ? 100 : (sub.attended / sub.conducted) * 100;
+                          return (
+                            <div key={sub._id} className="flex items-center justify-between p-2.5 bg-slate-950/20 border border-slate-800/80 rounded-xl">
+                              <div className="truncate max-w-[70%]">
+                                <span className="text-xs font-bold text-white block truncate">{sub.subjectName}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">{sub.subjectCode}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className={`text-xs font-bold ${pct >= 65 ? 'text-amber-400' : 'text-rose-400'}`}>
+                                  {pct.toFixed(1)}%
+                                </span>
+                                <span className="text-[9px] text-slate-400 block font-medium">
+                                  {sub.attended}/{sub.conducted} lec
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {risky.length > 2 && (
+                          <div className="text-[10px] text-slate-500 italic text-right font-medium">
+                            + {risky.length - 2} more risky subjects
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Guardian AI Risk Panel */}
           <GuardianAIPanel />

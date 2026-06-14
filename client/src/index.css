@@ -18,6 +18,7 @@
       radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
       radial-gradient(at 50% 50%, rgba(59, 130, 246, 0.05) 0px, transparent 50%);
     background-attachment: fixed;
+    transition: background-color 0.25s ease, color 0.25s ease;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -29,6 +30,7 @@
 /* Glassmorphism utility classes */
 .glass-panel {
   @apply bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl shadow-xl shadow-black/10;
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .glass-panel-interactive {
@@ -37,10 +39,42 @@
 
 .glass-card {
   @apply bg-slate-900/80 backdrop-blur-lg border border-slate-800 rounded-3xl shadow-2xl;
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .glass-input {
   @apply bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2.5 text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/80 transition-all duration-200;
+  color-scheme: dark;
+}
+
+.glass-input::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+.glass-input::-webkit-datetime-edit,
+.glass-input::-webkit-datetime-edit-fields-wrapper,
+.glass-input::-webkit-datetime-edit-hour-field,
+.glass-input::-webkit-datetime-edit-minute-field,
+.glass-input::-webkit-datetime-edit-ampm-field,
+.glass-input::-webkit-datetime-edit-text {
+  color: #f1f5f9;
+}
+
+.light .glass-input::-webkit-datetime-edit,
+.light .glass-input::-webkit-datetime-edit-fields-wrapper,
+.light .glass-input::-webkit-datetime-edit-hour-field,
+.light .glass-input::-webkit-datetime-edit-minute-field,
+.light .glass-input::-webkit-datetime-edit-ampm-field,
+.light .glass-input::-webkit-datetime-edit-text {
+  color: #0f172a;
+}
+
+.light .glass-input::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+
+.light .glass-input {
+  color-scheme: light;
 }
 
 .glass-btn-primary {
@@ -66,6 +100,38 @@
 ::-webkit-scrollbar-thumb {
   @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
 }
+
+/* Sidebar Custom Scrollbar styling */
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 0px;
+}
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+}
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.light .sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+}
+.light .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}
+.light .sidebar-scrollbar {
+  scrollbar-color: rgba(100, 116, 139, 0.25) transparent;
+}
+
 
 /* React Big Calendar Custom overrides */
 .rbc-calendar {
@@ -112,4 +178,228 @@
 
 .pulse-ring-active {
   animation: pulse-ring 2s infinite ease-in-out;
+}
+
+/* ==================================================== */
+/*                  LIGHT THEME SYSTEM                  */
+/* ==================================================== */
+
+.light body {
+  background-color: #f8fafc;
+  color: #334155;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.06) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.04) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(59, 130, 246, 0.03) 0px, transparent 50%);
+}
+
+/* Base Headings & Titles Override */
+.light h1, .light h2, .light h3, .light h4, .light h5, .light h6,
+.light .text-white:not(button):not(a):not(.glass-btn-primary):not(.rbc-event):not([class*="bg-indigo"]):not([class*="bg-rose"]):not([class*="bg-violet"]):not([class*="bg-emerald"]) {
+  color: #0f172a !important;
+}
+
+/* Background Slate Classes Override */
+.light .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+.light .bg-slate-950\/20,
+.light .bg-slate-950\/30,
+.light .bg-slate-950\/40,
+.light .bg-slate-950\/45,
+.light .bg-slate-950\/50,
+.light .bg-slate-950\/60,
+.light .bg-slate-950\/80 {
+  background-color: rgba(241, 245, 249, 0.8) !important;
+}
+.light .bg-slate-900,
+.light .bg-slate-900\/10,
+.light .bg-slate-900\/40,
+.light .bg-slate-900\/50,
+.light .bg-slate-900\/60,
+.light .bg-slate-900\/70,
+.light .bg-slate-900\/80 {
+  background-color: rgba(255, 255, 255, 0.85) !important;
+}
+.light .bg-slate-800,
+.light .bg-slate-800\/60 {
+  background-color: rgba(241, 245, 249, 0.9) !important;
+}
+.light .bg-slate-900\/60.backdrop-blur-md,
+.light .glass-panel {
+  background-color: rgba(255, 255, 255, 0.75) !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  box-shadow: 0 20px 25px -5px rgba(226, 232, 240, 0.5) !important;
+}
+.light .glass-panel-interactive {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  border-color: rgba(226, 232, 240, 0.7) !important;
+}
+.light .glass-panel-interactive:hover {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.05) !important;
+}
+.light .glass-card {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  box-shadow: 0 25px 50px -12px rgba(226, 232, 240, 0.5) !important;
+}
+.light .glass-input {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(203, 213, 225, 0.8) !important;
+  color: #0f172a !important;
+}
+.light .glass-input::placeholder {
+  color: #94a3b8 !important;
+}
+.light .glass-btn-secondary {
+  background-color: rgba(241, 245, 249, 0.85) !important;
+  border-color: rgba(203, 213, 225, 0.8) !important;
+  color: #334155 !important;
+}
+.light .glass-btn-secondary:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Border Slate Classes Override */
+.light .border-slate-800,
+.light .border-slate-800\/50,
+.light .border-slate-800\/60,
+.light .border-slate-800\/70,
+.light .border-slate-800\/80,
+.light .border-slate-850,
+.light .border-slate-900,
+.light .border-slate-900\/60 {
+  border-color: rgba(226, 232, 240, 0.9) !important;
+}
+.light .border-slate-700 {
+  border-color: rgba(203, 213, 225, 0.8) !important;
+}
+
+/* Text Slate Classes Override */
+.light .text-slate-100 {
+  color: #0f172a !important;
+}
+.light .text-slate-200, .light .text-slate-250 {
+  color: #1e293b !important;
+}
+.light .text-slate-300, .light .text-slate-350 {
+  color: #334155 !important;
+}
+.light .text-slate-400 {
+  color: #475569 !important;
+}
+.light .text-slate-500, .light .text-slate-450 {
+  color: #64748b !important;
+}
+
+/* Enhancing Accent Visibility on Light Theme */
+.light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+.light .text-violet-400 {
+  color: #7c3aed !important;
+}
+.light .text-rose-400 {
+  color: #be123c !important;
+}
+.light .text-amber-400 {
+  color: #b45309 !important;
+}
+.light .text-emerald-400 {
+  color: #059669 !important;
+}
+
+.light .bg-indigo-500\/10 {
+  background-color: rgba(79, 70, 229, 0.08) !important;
+  border-color: rgba(79, 70, 229, 0.2) !important;
+}
+.light .bg-purple-500\/15 {
+  background-color: rgba(124, 58, 237, 0.08) !important;
+  border-color: rgba(124, 58, 237, 0.2) !important;
+}
+.light .bg-blue-500\/10 {
+  background-color: rgba(37, 99, 235, 0.08) !important;
+  border-color: rgba(37, 99, 235, 0.2) !important;
+}
+.light .bg-rose-500\/10 {
+  background-color: rgba(190, 18, 60, 0.08) !important;
+  border-color: rgba(190, 18, 60, 0.2) !important;
+}
+.light .bg-amber-500\/10 {
+  background-color: rgba(180, 83, 9, 0.08) !important;
+  border-color: rgba(180, 83, 9, 0.2) !important;
+}
+.light .bg-emerald-500\/10 {
+  background-color: rgba(5, 150, 105, 0.08) !important;
+  border-color: rgba(5, 150, 105, 0.2) !important;
+}
+
+/* Sidebar Specific Adaptations */
+.light aside.bg-slate-900 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+.light aside .text-slate-400 {
+  color: #475569 !important;
+}
+.light aside .text-slate-400:hover {
+  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
+}
+.light aside .bg-slate-950\/60 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+.light aside .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Mobile bottom bar adaptation */
+.light .md\:hidden.fixed.bottom-0 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Calendar Adaptations */
+.light .rbc-calendar {
+  color: #334155 !important;
+}
+.light .rbc-header {
+  color: #475569 !important;
+  border-color: #e2e8f0 !important;
+}
+.light .rbc-time-view, .light .rbc-month-view, .light .rbc-time-content, .light .rbc-time-header {
+  border-color: #e2e8f0 !important;
+}
+.light .rbc-month-row, .light .rbc-day-bg, .light .rbc-time-slot {
+  border-color: #f1f5f9 !important;
+}
+.light .rbc-today {
+  background-color: rgba(79, 70, 229, 0.05) !important;
+}
+.light .rbc-off-range-bg {
+  background-color: rgba(241, 245, 249, 0.5) !important;
+}
+.light .rbc-toolbar button {
+  border-color: #cbd5e1 !important;
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  color: #475569 !important;
+}
+.light .rbc-toolbar button:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Scrollbar Adaptations */
+.light ::-webkit-scrollbar-track {
+  background-color: #f1f5f9 !important;
+}
+.light ::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1 !important;
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8 !important;
 }

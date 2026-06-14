@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { verifyJWT, requireRole } from '../middleware/auth.js';
-import { uploadFile, getPresignedUrl } from '../services/s3.service.js';
+import { uploadFile, getPresignedUrl, deleteFile } from '../services/s3.service.js';
 import { runSummarization } from '../services/summarize.service.js';
 import Notice from '../models/Notice.js';
 
@@ -149,6 +149,57 @@ router.get('/', verifyJWT, async (req, res, next) => {
       page,
       limit,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/notices/admin/history (Admin notice history with sorting)
+// Returns all notices uploaded by the authenticated administrator, sorted by uploadedAt.
+router.get('/admin/history', verifyJWT, requireRole('administrator'), async (req, res, next) => {
+  try {
+    const { sort } = req.query;
+
+    // Validate sort parameter
+    if (sort && sort !== 'newest' && sort !== 'oldest') {
+      return res.status(400).json({ error: 'Invalid sort parameter. Accepted values: newest, oldest' });
+    }
+
+    const sortOrder = sort === 'oldest' ? 1 : -1;
+
+    const notices = await Notice.find({ uploadedBy: req.user.userId })
+      .sort({ uploadedAt: sortOrder, _id: -1 })
+      .select('_id fileName title summary urgency category status uploadedAt')
+      .lean();
+
+    return res.status(200).json({ notices });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/notices/:id (Admin delete notice)
+// Permanently deletes a notice record and its associated file from storage.
+router.delete('/:id', verifyJWT, requireRole('administrator'), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const notice = await Notice.findById(id);
+
+    if (!notice) {
+      return res.status(404).json({ error: 'Notice not found' });
+    }
+
+    // Delete associated file from S3/local storage (swallow errors if file missing)
+    try {
+      await deleteFile(notice.s3Key);
+    } catch (fileErr) {
+      console.warn(`File deletion warning for notice ${id}:`, fileErr.message);
+    }
+
+    // Delete the notice record from MongoDB
+    await Notice.deleteOne({ _id: id });
+
+    return res.status(200).json({ message: 'Notice deleted successfully', deletedId: id });
   } catch (error) {
     next(error);
   }

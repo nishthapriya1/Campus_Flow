@@ -25,7 +25,7 @@ export const NotificationBanner = () => {
     const intervalId = setInterval(fetchReminders, 30000);
 
     return () => clearInterval(intervalId);
-  }, [token, user]);
+  }, [token, user?.userId, user?.role]);
 
   const handleDismiss = async (reminderId) => {
     // Optimistic UI update: remove from local state immediately

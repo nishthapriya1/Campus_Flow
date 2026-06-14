@@ -1,10 +1,9 @@
 import bcrypt from 'bcryptjs';
 import { connectDB, disconnectDB } from '../config/db.js';
 import User from '../models/User.js';
-import Notice from '../models/Notice.js';
 import Event from '../models/Event.js';
 import StudyPlan from '../models/StudyPlan.js';
-import Notification from '../models/Notification.js';
+import Attendance from '../models/Attendance.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -44,80 +43,13 @@ export const seedDatabase = async () => {
     );
     console.log('Pre-seeded Student account upserted.');
 
-    // 3. Clear existing notices, events, and study plans for student and admin to ensure idempotency
-    await Notice.deleteMany({ uploadedBy: admin._id });
+    // 3. Clear existing events, study plans, and attendance for student to ensure idempotency
     await Event.deleteMany({ userId: student._id });
     await StudyPlan.deleteMany({ userId: student._id });
-    await Notification.deleteMany({ userId: student._id });
-    console.log('Cleared existing notices, events, study plans, and notifications for seeding.');
+    await Attendance.deleteMany({ userId: student._id });
+    console.log('Cleared existing events, study plans, and attendance for seeding.');
 
-    // 4. Seed 3 notices
-    const notice1 = new Notice({
-      uploadedBy: admin._id,
-      fileName: 'Semester_Registration_Notice.txt',
-      s3Key: 'notices/seed_semester_reg.txt',
-      mimeType: 'text/plain',
-      sizeBytes: 312,
-      status: 'summarized',
-      summary: 'All students must complete their semester registration before the deadline on June 20th. Make sure to clear all outstanding library dues.',
-      summaryLang: 'en',
-      title: 'Semester Registration',
-      urgency: 'high',
-      category: 'academic',
-      uploadedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-    });
-    await notice1.save();
-
-    const notice2 = new Notice({
-      uploadedBy: admin._id,
-      fileName: 'Capstone_Project_Guidelines.pdf',
-      s3Key: 'notices/seed_capstone_guide.pdf',
-      mimeType: 'application/pdf',
-      sizeBytes: 154320,
-      status: 'summarized',
-      summary: 'Final year CS and B.Tech students must submit their capstone source code and final reports on or before June 28th. Submissions close at 17:00.',
-      summaryLang: 'en',
-      title: 'Capstone Project Guidelines',
-      urgency: 'critical',
-      category: 'academic',
-      uploadedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
-    });
-    await notice2.save();
-
-    const notice3 = new Notice({
-      uploadedBy: admin._id,
-      fileName: 'Sports_Fest_Registration.txt',
-      s3Key: 'notices/seed_sports_fest.txt',
-      mimeType: 'text/plain',
-      sizeBytes: 180,
-      status: 'summarized',
-      summary: 'Registrations are open for the annual track-and-field and basketball sports tournament taking place from June 24th to June 26th.',
-      summaryLang: 'en',
-      title: 'Sports Fest Registration',
-      urgency: 'low',
-      category: 'event',
-      uploadedAt: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
-    });
-    await notice3.save();
-
-    const notice4 = new Notice({
-      uploadedBy: admin._id,
-      fileName: 'Google_Summer_Placement_Drive.pdf',
-      s3Key: 'notices/seed_google_placement.pdf',
-      mimeType: 'application/pdf',
-      sizeBytes: 245000,
-      status: 'summarized',
-      summary: 'Google is hosting a placement recruitment drive for software engineering interns. Apply online by June 25th.',
-      summaryLang: 'en',
-      title: 'Google Summer Placement Drive',
-      urgency: 'critical',
-      category: 'placement',
-      uploadedAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
-    });
-    await notice4.save();
-    console.log('Seeded 4 demo notices.');
-
-    // 5. Seed 5 events for the student
+    // 4. Seed 5 events for the student
     const today = new Date();
     
     // Event 1: Exam (5 days away)
@@ -199,7 +131,7 @@ export const seedDatabase = async () => {
     await event6.save();
     console.log('Seeded 6 demo events.');
 
-    // 6. Seed active study plan
+    // 5. Seed active study plan
     const tomorrow = new Date();
     tomorrow.setDate(today.getDate() + 1);
 
@@ -232,74 +164,57 @@ export const seedDatabase = async () => {
     await studyPlan.save();
     console.log('Seeded 1 active study plan.');
 
-    // 7. Seed sample Notification documents (Task 55)
-    const notification1 = new Notification({
-      userId: student._id,
-      alertType: 'deadline_72h',
-      severity: 'critical',
-      title: 'Math Exam Deadline Approaching',
-      shortMessage: 'Your Mathematics Term Exam starts in 72 hours.',
-      detailedReason: 'An upcoming exam was detected with no study sessions scheduled in the preceding 48 hours.',
-      recommendedAction: 'Allocate at least two study blocks for Mathematics in your Study Plan.',
-      deadline: exam2Start,
-      read: false,
-    });
-    await notification1.save();
+    // 6. Seed Attendance subjects with daily logs history
+    const makeLogs = (conducted, attended) => {
+      const logs = [];
+      const today = new Date();
+      for (let i = 0; i < conducted; i++) {
+        const logDate = new Date(today);
+        logDate.setDate(today.getDate() - i);
+        logs.push({
+          date: logDate,
+          status: i < attended ? 'present' : 'absent'
+        });
+      }
+      return logs;
+    };
 
-    const notification2 = new Notification({
-      userId: student._id,
-      alertType: 'reminder_24h',
-      severity: 'high',
-      title: 'Chemistry Lab Exam 24h Reminder',
-      shortMessage: 'Chemistry Lab Final Exam is tomorrow at 10:00.',
-      detailedReason: 'Automatic 24-hour reminder generated for your Chemistry Lab Final Exam.',
-      recommendedAction: 'Verify you have all lab journals and materials ready.',
-      deadline: exam1Start,
-      read: false,
-    });
-    await notification2.save();
+    const subjects = [
+      {
+        userId: student._id,
+        subjectName: 'Mathematics',
+        subjectCode: 'MATH101',
+        type: 'Theory',
+        logs: makeLogs(40, 32),
+      },
+      {
+        userId: student._id,
+        subjectName: 'Physics Lab',
+        subjectCode: 'PHYS102',
+        type: 'Lab',
+        logs: makeLogs(20, 14),
+      },
+      {
+        userId: student._id,
+        subjectName: 'Chemistry',
+        subjectCode: 'CHEM103',
+        type: 'Theory',
+        logs: makeLogs(30, 18),
+      },
+      {
+        userId: student._id,
+        subjectName: 'Computer Science',
+        subjectCode: 'CS104',
+        type: 'Theory',
+        logs: makeLogs(25, 24),
+      },
+    ];
 
-    const notification3 = new Notification({
-      userId: student._id,
-      alertType: 'reminder_1h',
-      severity: 'medium',
-      title: 'Physics Assignment Submission',
-      shortMessage: 'Physics Lab Workbook Submission is in 1 hour.',
-      detailedReason: 'Automatic 1-hour reminder generated for Physics Lab Workbook Submission.',
-      recommendedAction: 'Submit your workbook at the registrar desk.',
-      deadline: assignStart,
-      read: true,
-      readAt: new Date(Date.now() - 30 * 60 * 1000), // read 30 mins ago
-    });
-    await notification3.save();
-
-    const notification4 = new Notification({
-      userId: student._id,
-      alertType: 'guardian_risk',
-      severity: 'high',
-      title: 'Attendance Risk: Physics Class',
-      shortMessage: 'Your Physics attendance has dropped below 75%.',
-      detailedReason: 'Attendance projection shows 72% attendance due to recent absences.',
-      recommendedAction: 'Attend all remaining classes this week.',
-      deadline: null,
-      read: false,
-    });
-    await notification4.save();
-
-    const notification5 = new Notification({
-      userId: student._id,
-      alertType: 'guardian_opportunity',
-      severity: 'low',
-      title: 'Placement Opportunity: Google Recruitment',
-      shortMessage: 'Google Placement recruitment drive registration is open.',
-      detailedReason: 'New placement recruitment drive has been announced for software engineering interns.',
-      recommendedAction: 'Register on the placement portal.',
-      deadline: null,
-      read: false,
-    });
-    await notification5.save();
-
-    console.log('Seeded 5 Notification documents.');
+    for (const sub of subjects) {
+      const newSub = new Attendance(sub);
+      await newSub.save();
+    }
+    console.log('Seeded 4 Attendance records with logs history.');
 
     console.log('Database seeding successfully finished.');
   } catch (error) {

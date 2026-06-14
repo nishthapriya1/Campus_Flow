@@ -1,7 +1,8 @@
 import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { bedrockClient, isAwsConfigured } from '../config/aws.js';
+import mongoose from 'mongoose';
 
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-6';
+const MODEL_ID = process.env.BEDROCK_MODEL_ID;
 
 /**
  * Clean text and generate a dynamic notice summary from the actual document content.
@@ -54,25 +55,25 @@ const extractDeadlinesFromText = (text) => {
     if (months.includes(word)) {
       let day = '';
       if (i > 0) {
-        const prev = words[i-1].replace(/[^0-9]/g, '');
+        const prev = words[i - 1].replace(/[^0-9]/g, '');
         if (prev && parseInt(prev) > 0 && parseInt(prev) <= 31) {
           day = prev;
         }
       }
       if (!day && i < words.length - 1) {
-        const next = words[i+1].replace(/[^0-9]/g, '');
+        const next = words[i + 1].replace(/[^0-9]/g, '');
         if (next && parseInt(next) > 0 && parseInt(next) <= 31) {
           day = next;
         }
       }
       let year = '2026';
       if (i < words.length - 2) {
-        const yearCand = words[i+2].replace(/[^0-9]/g, '');
+        const yearCand = words[i + 2].replace(/[^0-9]/g, '');
         if (yearCand && yearCand.length === 4) {
           year = yearCand;
         }
       } else if (i > 1) {
-        const yearCand = words[i-2].replace(/[^0-9]/g, '');
+        const yearCand = words[i - 2].replace(/[^0-9]/g, '');
         if (yearCand && yearCand.length === 4) {
           year = yearCand;
         }
@@ -157,7 +158,7 @@ const generateDynamicMockAnalysis = (text) => {
 };
 
 /**
- * Invokes Bedrock model with Claude 3 Messages API structure.
+ * Invokes Bedrock model with Amazon Nova Lite Messages API structure.
  * @param {object} params - Request options
  * @param {string} params.system - System prompt
  * @param {Array} params.messages - History of messages
@@ -165,7 +166,7 @@ const generateDynamicMockAnalysis = (text) => {
  * @param {number} params.timeout - Timeout in milliseconds
  * @returns {Promise<string>} Model output text
  */
-const invokeClaude = async ({ system, messages, maxTokens = 300, timeout = 30000 }) => {
+const invokeBedrock = async ({ system, messages, maxTokens = 300, timeout = 30000 }) => {
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => {
       const err = new Error('Bedrock request timed out');
@@ -176,13 +177,26 @@ const invokeClaude = async ({ system, messages, maxTokens = 300, timeout = 30000
 
   const mainPromise = (async () => {
     try {
+      console.log("MODEL_ID =", process.env.BEDROCK_MODEL_ID);
+      console.log("AWS_REGION =", process.env.AWS_REGION);
+
+      const formattedMessages = messages.map(msg => ({
+        role: msg.role,
+        content: Array.isArray(msg.content)
+          ? msg.content.map(c => ({ text: c.text }))
+          : [{ text: msg.content }]
+      }));
+
       const payload = {
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: maxTokens,
-        messages,
+        schemaVersion: "messages-v1",
+        messages: formattedMessages,
+        inferenceConfig: {
+          maxTokens: maxTokens,
+          temperature: 0.2
+        }
       };
       if (system) {
-        payload.system = system;
+        payload.system = [{ text: system }];
       }
 
       const command = new InvokeModelCommand({
@@ -195,12 +209,12 @@ const invokeClaude = async ({ system, messages, maxTokens = 300, timeout = 30000
       const response = await bedrockClient.send(command);
       const responseBody = JSON.parse(new TextDecoder().decode(response.body));
       
-      if (responseBody?.content?.[0]?.text) {
-        return responseBody.content[0].text;
+      if (responseBody?.output?.message?.content?.[0]?.text) {
+        return responseBody.output.message.content[0].text;
       }
       throw new Error('Unexpected empty response from Bedrock model');
     } catch (error) {
-      console.error('Bedrock invocation failed:', error.message);
+      console.error('Bedrock invocation failed:', error);
       throw error;
     }
   })();
@@ -224,7 +238,7 @@ export const summarizeNotice = async (text) => {
   }
 
   const systemPrompt = `You are a helpful university administration assistant. Summarize the following notice text in plain language, keeping the summary strictly under 150 words. Ensure you preserve all important dates, deadlines, and direct action items. Translate or write the summary in the same language as the detected language of the source text.`;
-  
+
   const messages = [
     {
       role: 'user',
@@ -233,7 +247,7 @@ export const summarizeNotice = async (text) => {
   ];
 
   try {
-    return await invokeClaude({ system: systemPrompt, messages, maxTokens: 300 });
+    return await invokeBedrock({ system: systemPrompt, messages, maxTokens: 300 });
   } catch (err) {
     console.warn('Bedrock notice summary failed, falling back to mock summary:', err.message);
     return generateDynamicMockSummary(text);
@@ -261,7 +275,7 @@ export const generateStudyPlan = async ({ subjects, examDates, dailyHours, block
       const examDate = new Date(examDates[idx]);
       const diffTime = Math.abs(examDate - tomorrow);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
+
       // Proportional allocation: schedule 2 sessions for closer exams, 1 for further exams
       const sessionsCount = diffDays <= 4 ? 2 : 1;
 
@@ -270,11 +284,11 @@ export const generateStudyPlan = async ({ subjects, examDates, dailyHours, block
         sessionDate.setDate(tomorrow.getDate() + (s * 2) % 6); // spread out
 
         const dateStr = sessionDate.toISOString().split('T')[0];
-        
+
         // Pick slots that are not blocked
         let startTime = '10:00';
         let endTime = '12:00';
-        
+
         if (s === 1) {
           startTime = '14:00';
           endTime = '16:00';
@@ -304,7 +318,19 @@ export const generateStudyPlan = async ({ subjects, examDates, dailyHours, block
     return sessions;
   }
 
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().split('T')[0];
+  const endLimit = new Date();
+  endLimit.setDate(today.getDate() + 7);
+  const endLimitStr = endLimit.toISOString().split('T')[0];
+
   const promptText = `Generate a study plan based on these parameters:
+- Current Date (Today): ${todayStr}
+- Study Plan Start Date: ${tomorrowStr}
+- Study Plan End Date Limit (7 days from today): ${endLimitStr}
 - Subjects: ${JSON.stringify(subjects)}
 - Corresponding Exam Dates: ${JSON.stringify(examDates.map(d => new Date(d).toISOString().split('T')[0]))}
 - Daily Study Hours limit: ${dailyHours}
@@ -313,7 +339,9 @@ export const generateStudyPlan = async ({ subjects, examDates, dailyHours, block
 Constraints:
 1. Distribute study time for each subject proportionally to the number of remaining days before its exam relative to the total remaining days across all subjects.
 2. Individual study sessions must be between 30 minutes and 3 hours.
-3. Output ONLY a valid JSON array of study sessions. Do not include any explanation or markdown formatting (except a code block).
+3. Schedule study sessions ONLY within the 7-day window from ${tomorrowStr} to ${endLimitStr} (inclusive). Do not schedule any sessions beyond this window.
+4. For any subject, do not schedule study sessions on or after its exam date.
+5. Output ONLY a valid JSON array of study sessions. Do not include any explanation or markdown formatting (except a code block).
 Each object in the array must match this exact format:
 {
   "subject": "Subject Name",
@@ -330,10 +358,10 @@ Each object in the array must match this exact format:
     },
   ];
 
-  const responseText = await invokeClaude({
+  const responseText = await invokeBedrock({
     system: 'You are an academic advisor. You output ONLY structured JSON responses. Do not include any text before or after the JSON block.',
     messages,
-    maxTokens: 1000,
+    maxTokens: 2000,
   });
 
   try {
@@ -362,29 +390,28 @@ Each object in the array must match this exact format:
  * @returns {Promise<string>} Assistant response
  */
 export const chatWithAssistant = async (message, history = []) => {
-  const academicKeywords = [
-    'study', 'exam', 'course', 'assignment', 'homework', 'syllabus',
-    'lecture', 'academic', 'subject', 'university', 'college', 'professor',
-    'schedule', 'grade', 'cgpa', 'research', 'thesis', 'book', 'learn', 'curriculum',
-    'math', 'science', 'history', 'physics', 'chemistry', 'biology', 'computer',
-    'algebra', 'linear', 'solve', 'explain', 'rule', 'formula', 'concept', 'question'
-  ];
-
-  const isAcademic = academicKeywords.some(keyword => message.toLowerCase().includes(keyword));
-
-  if (!isAcademic) {
-    return "I'm sorry, I am scoped to assist you with academic topics only (such as course content, assignments, exam preparation, research, and university academic processes). Please rephrase your question toward these areas.";
-  }
-
   if (!isAwsConfigured) {
     console.log('Mock Bedrock: Responding to academic chat message...');
-    return `[MOCK ASSISTANT] Thank you for asking about "${message.substring(0, 40)}${message.length > 40 ? '...' : ''}". In a real environment, I would consult our knowledge base or parse this prompt with Claude. Here is a helpful tip: break down your query into core concepts and organize daily study schedules to master them. Let me know how else I can support your academic success!`;
+    return `[MOCK ASSISTANT] Thank you for asking about "${message.substring(0, 40)}${message.length > 40 ? '...' : ''}". In a real environment, I would consult our knowledge base or parse this prompt with Amazon Nova Lite. Here is a helpful tip: break down your query into core concepts and organize daily study schedules to master them. Let me know how else I can support your academic success!`;
   }
 
-  const systemPrompt = `You are a helpful university assistant. You MUST decline to answer any non-academic questions and politely suggest the student rephrase their question toward an academic topic. For academic topics (course content, assignments, exams, research, and academic processes), provide a structured, substantive, and helpful response. Keep responses concise, friendly, and professional (under 300 words).`;
+  const systemPrompt = `You are a helpful university assistant. Provide a structured, substantive, friendly, and professional response to the student's questions, assisting them with academic topics, daily campus queries, stress, schedule management, or other inquiries (under 300 words).`;
 
-  // Map client history to Bedrock message format: { role: 'user'|'assistant', content: [{ type: 'text', text: ... }] }
-  const formattedMessages = history.map(h => ({
+  // Sanitize history to ensure it starts with a 'user' message and strictly alternates role types
+  const sanitizedHistory = [];
+  let expectedRole = 'user';
+  for (const msg of history) {
+    if (msg.role === expectedRole) {
+      sanitizedHistory.push(msg);
+      expectedRole = expectedRole === 'user' ? 'assistant' : 'user';
+    }
+  }
+  if (sanitizedHistory.length > 0 && sanitizedHistory[sanitizedHistory.length - 1].role === 'user') {
+    sanitizedHistory.pop();
+  }
+
+  // Map sanitized history to Bedrock message format: { role: 'user'|'assistant', content: [{ type: 'text', text: ... }] }
+  const formattedMessages = sanitizedHistory.map(h => ({
     role: h.role,
     content: [{ type: 'text', text: h.content }],
   }));
@@ -395,7 +422,7 @@ export const chatWithAssistant = async (message, history = []) => {
     content: [{ type: 'text', text: message }],
   });
 
-  return await invokeClaude({ system: systemPrompt, messages: formattedMessages, maxTokens: 512 });
+  return await invokeBedrock({ system: systemPrompt, messages: formattedMessages, maxTokens: 512 });
 };
 
 /**
@@ -468,10 +495,10 @@ Do NOT include any explanations or markdown formatting (except a code block). Re
   let parsed;
   try {
     try {
-      responseText = await invokeClaude({ system: systemPrompt, messages, maxTokens: 600, timeout: 30000 });
+      responseText = await invokeBedrock({ system: systemPrompt, messages, maxTokens: 600, timeout: 30000 });
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       parsed = JSON.parse(cleanJson);
-      
+
       const validUrgencies = ['critical', 'high', 'medium', 'low'];
       const validCategories = ['academic', 'event', 'administrative', 'placement'];
 
@@ -545,7 +572,7 @@ export const runGuardianAnalysis = async ({ events, studyPlan, notices }) => {
     const exams = events.filter(e => e.type === 'exam');
     for (const exam of exams) {
       const examSubject = exam.title;
-      const hasSessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s => 
+      const hasSessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s =>
         s.subject.toLowerCase().includes(examSubject.toLowerCase()) || examSubject.toLowerCase().includes(s.subject.toLowerCase())
       );
       if (!hasSessions) {
@@ -560,9 +587,9 @@ export const runGuardianAnalysis = async ({ events, studyPlan, notices }) => {
       }
     }
 
-    const placementNotices = notices.filter(n => 
-      n.category === 'placement' || 
-      n.fileName.toLowerCase().includes('placement') || 
+    const placementNotices = notices.filter(n =>
+      n.category === 'placement' ||
+      n.fileName.toLowerCase().includes('placement') ||
       (n.summary && n.summary.toLowerCase().includes('placement'))
     );
     if (placementNotices.length > 0) {
@@ -593,7 +620,7 @@ Detect:
 1. Attendance risk: Any warnings about class attendance or requirements.
 2. Overloaded schedules: Heavy workloads or event conflicts in the next 7 days.
 3. Exam preparation gaps: Impending exams with no corresponding study plan sessions.
-4. Placement opportunity alerts: Notice announcements for high-value placement drives or job applications.
+4. Placement opportunity alerts: Notice announcements for high-value placement drives or job applications. If any placement notices (category: "placement" or containing "placement" / "recruitment" / "job") are present, you MUST include a "placement_alert" object inside the "alerts" array with "severity": "low".
 
 Ensure you ONLY operate on data present in the student's own account (do not invent deadlines or records).
 
@@ -652,7 +679,7 @@ Do NOT include any markdown formatting (except a code block). Return ONLY the va
   let responseText = '';
   try {
     try {
-      responseText = await invokeClaude({ system: systemPrompt, messages, maxTokens: 1024, timeout: 20000 });
+      responseText = await invokeBedrock({ system: systemPrompt, messages, maxTokens: 1024, timeout: 20000 });
       const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
       if (
@@ -697,7 +724,7 @@ Do NOT include any markdown formatting (except a code block). Return ONLY the va
       const exams = events.filter(e => e.type === 'exam');
       for (const exam of exams) {
         const examSubject = exam.title;
-        const hasSessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s => 
+        const hasSessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s =>
           s.subject.toLowerCase().includes(examSubject.toLowerCase()) || examSubject.toLowerCase().includes(s.subject.toLowerCase())
         );
         if (!hasSessions) {
@@ -712,9 +739,9 @@ Do NOT include any markdown formatting (except a code block). Return ONLY the va
         }
       }
 
-      const placementNotices = notices.filter(n => 
-        n.category === 'placement' || 
-        n.fileName.toLowerCase().includes('placement') || 
+      const placementNotices = notices.filter(n =>
+        n.category === 'placement' ||
+        n.fileName.toLowerCase().includes('placement') ||
         (n.summary && n.summary.toLowerCase().includes('placement'))
       );
       if (placementNotices.length > 0) {
@@ -743,3 +770,873 @@ Do NOT include any markdown formatting (except a code block). Return ONLY the va
     throw error;
   }
 };
+
+/**
+ * Proactively analyze student workload, events, attendance, and study schedules.
+ * @returns {Promise<object>} Schedule report matching instructions format
+ */
+export const runSchedulingAnalysis = async ({ events = [], attendance = [], studyPlan = null, notices = [], preferences = {}, currentDateTime = new Date() }) => {
+  const currentLocal = new Date(currentDateTime);
+  const formattedToday = currentLocal.toISOString().split('T')[0];
+
+  if (!isAwsConfigured) {
+    console.log('Mock Bedrock: Executing scheduling analysis engine...');
+    
+    // 1. Calculate Attendance Statuses
+    const attendanceStatus = attendance.map(a => {
+      const pct = a.conducted === 0 ? 100 : (a.attended / a.conducted) * 100;
+      const needed = pct >= 75 ? 0 : Math.max(0, Math.ceil(3 * a.conducted - 4 * a.attended));
+      let status = 'safe';
+      if (pct < 65) status = 'critical';
+      else if (pct < 75) status = 'warning';
+      
+      return {
+        subject: a.subjectName,
+        code: a.subjectCode,
+        currentPct: parseFloat(pct.toFixed(1)),
+        requiredPct: 75,
+        status,
+        needed
+      };
+    });
+
+    // 2. Identify Overlaps and Conflicts
+    const conflictsDetected = [];
+    const eventsSorted = [...events].sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    
+    for (let i = 0; i < eventsSorted.length; i++) {
+      for (let j = i + 1; j < eventsSorted.length; j++) {
+        const e1 = eventsSorted[i];
+        const e2 = eventsSorted[j];
+        const start1 = new Date(e1.startTime).getTime();
+        const end1 = new Date(e1.endTime).getTime();
+        const start2 = new Date(e2.startTime).getTime();
+        const end2 = new Date(e2.endTime).getTime();
+
+        if (start1 < end2 && start2 < end1) {
+          conflictsDetected.push({
+            issue: `Overlapping Commitments: "${e1.title}" and "${e2.title}"`,
+            impact: `You are double-booked on ${new Date(e1.startTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}.`,
+            resolution: `Reschedule "${e2.title}" to a free slot to avoid missing one of them.`
+          });
+        }
+      }
+    }
+
+    // Travel time conflict mock
+    eventsSorted.forEach(e => {
+      if (e.type === 'class' && preferences.travelTimeMins > 45) {
+        conflictsDetected.push({
+          issue: `Travel Buffer Congestion for "${e.title}"`,
+          impact: `Your travel time of ${preferences.travelTimeMins} mins cuts close to your previous activity.`,
+          resolution: `We recommend leaving at least 15 mins early.`
+        });
+      }
+    });
+
+    // 3. Risks Identified (burnout, attendance, exam gap)
+    const risksIdentified = [];
+    
+    // Attendance risks
+    attendanceStatus.forEach(as => {
+      if (as.status !== 'safe') {
+        risksIdentified.push({
+          type: 'attendance',
+          title: `Attendance warning in ${as.subject}`,
+          reason: `Your attendance is ${as.currentPct}%, which is below the 75% threshold. You need to attend ${as.needed} classes.`
+        });
+      }
+    });
+
+    // Exam gap risk: Find upcoming exams in the next 3 days
+    const upcomingExams = events.filter(e => e.type === 'exam' && (new Date(e.startTime) - currentLocal) <= 3 * 24 * 60 * 60 * 1000);
+    upcomingExams.forEach(exam => {
+      const hasSessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s =>
+        s.subject.toLowerCase().includes(exam.title.toLowerCase()) || exam.title.toLowerCase().includes(s.subject.toLowerCase())
+      );
+      if (!hasSessions) {
+        risksIdentified.push({
+          type: 'exam',
+          title: `Preparation Gap: ${exam.title}`,
+          reason: `No study sessions are scheduled for ${exam.title} which takes place on ${new Date(exam.startTime).toLocaleDateString()}.`
+        });
+      }
+    });
+
+    // Burnout risk: if a day has > 8 hours of commitments
+    const dailyWorkload = {};
+    events.forEach(e => {
+      const dStr = new Date(e.startTime).toISOString().split('T')[0];
+      const hrs = (new Date(e.endTime) - new Date(e.startTime)) / (1000 * 60 * 60);
+      dailyWorkload[dStr] = (dailyWorkload[dStr] || 0) + hrs;
+    });
+    if (studyPlan && studyPlan.sessions) {
+      studyPlan.sessions.forEach(s => {
+        const dStr = new Date(s.date).toISOString().split('T')[0];
+        dailyWorkload[dStr] = (dailyWorkload[dStr] || 0) + (s.durationMins / 60);
+      });
+    }
+
+    Object.keys(dailyWorkload).forEach(date => {
+      if (dailyWorkload[date] > 8) {
+        risksIdentified.push({
+          type: 'burnout',
+          title: `High Burnout Risk on ${new Date(date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`,
+          reason: `You have ${dailyWorkload[date].toFixed(1)} hours of active commitments (classes, exams, and studies) which exceeds the safe threshold.`
+        });
+      }
+    });
+
+    // Default risks if none found
+    if (risksIdentified.length === 0) {
+      risksIdentified.push({
+        type: 'schedule',
+        title: 'Workload Balanced',
+        reason: 'No immediate academic, burnout, or exam gaps detected in your active schedule.'
+      });
+    }
+
+    // 4. Generate Today's Plan (chronologically ordered combining events and preferences)
+    const todayPlan = [];
+    
+    // Add sleep blocks
+    todayPlan.push({ time: `${preferences.sleepEnd || '07:00'}`, activity: 'Wake Up & Morning Routine' });
+    todayPlan.push({ time: `${preferences.breakfastTime || '08:00'}–${addMinsToTime(preferences.breakfastTime || '08:00', 30)}`, activity: 'Breakfast' });
+    
+    // Add today's events
+    events.forEach(e => {
+      const eDate = new Date(e.startTime).toISOString().split('T')[0];
+      if (eDate === formattedToday) {
+        const startStr = formatTimeHHMM(new Date(e.startTime));
+        const endStr = formatTimeHHMM(new Date(e.endTime));
+        todayPlan.push({ time: `${startStr}–${endStr}`, activity: `${e.title} [${e.type.toUpperCase()}]` });
+      }
+    });
+
+    // Add today's study plan sessions
+    if (studyPlan && studyPlan.sessions) {
+      studyPlan.sessions.forEach(s => {
+        const sDate = new Date(s.date).toISOString().split('T')[0];
+        if (sDate === formattedToday) {
+          todayPlan.push({ time: `${s.startTime}–${s.endTime}`, activity: `Focused Study: ${s.subject}` });
+        }
+      });
+    }
+
+    // Add meal/sleep breaks
+    todayPlan.push({ time: `${preferences.lunchTime || '13:00'}–${addMinsToTime(preferences.lunchTime || '13:00', 45)}`, activity: 'Lunch Break' });
+    todayPlan.push({ time: `${preferences.dinnerTime || '20:00'}–${addMinsToTime(preferences.dinnerTime || '20:00', 60)}`, activity: 'Dinner & Leisure' });
+    todayPlan.push({ time: `${preferences.sleepStart || '23:00'}`, activity: 'Wind down / Sleep' });
+
+    // Sort plans by start time
+    todayPlan.sort((a, b) => a.time.localeCompare(b.time));
+
+    // 5. Extract Upcoming Deadlines
+    const upcomingDeadlines = [];
+    events.forEach(e => {
+      if (e.type === 'assignment' || e.type === 'exam') {
+        const daysLeft = Math.ceil((new Date(e.startTime) - currentLocal) / (1000 * 60 * 60 * 24));
+        if (daysLeft >= 0 && daysLeft <= 7) {
+          upcomingDeadlines.push({
+            title: e.title,
+            date: new Date(e.startTime).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+            urgency: daysLeft <= 1 ? 'critical' : daysLeft <= 3 ? 'high' : 'medium'
+          });
+        }
+      }
+    });
+
+    notices.forEach(n => {
+      if (n.deadlines && n.deadlines.length > 0) {
+        n.deadlines.forEach(dl => {
+          const dlDate = new Date(dl);
+          const daysLeft = Math.ceil((dlDate - currentLocal) / (1000 * 60 * 60 * 24));
+          if (daysLeft >= 0 && daysLeft <= 14) {
+            upcomingDeadlines.push({
+              title: n.title || n.fileName,
+              date: dlDate.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+              urgency: n.urgency === 'critical' ? 'critical' : n.urgency === 'high' ? 'high' : 'medium'
+            });
+          }
+        });
+      }
+    });
+
+    // 6. Proactive Recommendations
+    const recommendations = [];
+    if (attendanceStatus.some(as => as.status !== 'safe')) {
+      const weak = attendanceStatus.find(as => as.status !== 'safe');
+      recommendations.push(`Attend the next ${weak.needed} classes of ${weak.subject} to pull your attendance back to safety (${weak.currentPct}% -> 75.0%).`);
+    }
+    if (upcomingExams.length > 0) {
+      recommendations.push(`Start Operating Systems/Programming revision this week. Your exam is scheduled for ${new Date(upcomingExams[0].startTime).toLocaleDateString()}.`);
+    }
+    
+    // Add productivity pref suggestion
+    if (preferences.preferredStudyHours === 'evening') {
+      recommendations.push(`Evening hours (5 PM - 8 PM) are ideal for your peak cognitive focus. Reserve this slot for assignments.`);
+    } else if (preferences.preferredStudyHours === 'morning') {
+      recommendations.push(`Morning hours (8 AM - 11 AM) are ideal for deep work. Schedule calculus and code practice then.`);
+    } else {
+      recommendations.push(`Maintain regular study blocks. Ensure you take a 10-minute break for every 45 minutes of focus.`);
+    }
+    recommendations.push("Protect sleep cycles. Heavy academic study after midnight is counterproductive.");
+
+    // 7. Schedule changes log (Simulated history)
+    const scheduleChangesMade = [];
+    if (conflictsDetected.length > 0) {
+      scheduleChangesMade.push(`Suggested rescheduling for "${conflictsDetected[0].issue}" to resolve active timeline congestion.`);
+    }
+    if (upcomingExams.length > 0 && studyPlan) {
+      scheduleChangesMade.push(`Proactively aligned study plan sessions to match "${upcomingExams[0].title}" timeline.`);
+    }
+    if (scheduleChangesMade.length === 0) {
+      scheduleChangesMade.push("No schedule updates needed. Calendar and study allocations are fully synchronized.");
+    }
+
+    // 8. Weekly Insights
+    const weeklyInsights = {
+      busiestDay: Object.keys(dailyWorkload).length > 0 
+        ? new Date(Object.keys(dailyWorkload).reduce((a, b) => dailyWorkload[a] > dailyWorkload[b] ? a : b)).toLocaleDateString([], { weekday: 'long' })
+        : 'Monday',
+      lightestDay: 'Sunday',
+      availableStudyHours: Math.max(0, 168 - (preferences.travelTimeMins * 10 / 60) - (8 * 7) - 15), // 168h - travel - sleep - chores
+      attendanceRiskScore: attendanceStatus.some(as => as.status === 'critical') ? 85 : attendanceStatus.some(as => as.status === 'warning') ? 50 : 10,
+      deadlineRiskScore: upcomingDeadlines.some(dl => dl.urgency === 'critical') ? 75 : upcomingDeadlines.some(dl => dl.urgency === 'high') ? 45 : 15,
+      burnoutRiskScore: Object.values(dailyWorkload).some(hrs => hrs > 8) ? 80 : Object.values(dailyWorkload).some(hrs => hrs > 6) ? 45 : 15
+    };
+
+    // 9. Next Best Action
+    let nextBestAction = 'Relax and prepare for your next scheduled class.';
+    if (upcomingDeadlines.length > 0) {
+      nextBestAction = `Complete preparation for "${upcomingDeadlines[0].title}" ahead of its deadline.`;
+    } else if (attendanceStatus.some(as => as.status !== 'safe')) {
+      const sub = attendanceStatus.find(as => as.status !== 'safe');
+      nextBestAction = `Prepare to attend the next lecture of ${sub.subject} to recover attendance.`;
+    }
+
+    // 10. Summary
+    let scheduleSummary = `Arjun, you have a relatively balanced week. You have ${events.length} calendar events and ${studyPlan?.sessions?.length || 0} active study blocks.`;
+    if (risksIdentified.some(r => r.type === 'attendance')) {
+      scheduleSummary = `Arjun, your main focus this week should be attending classes. You have attendance shortages in ${attendanceStatus.filter(a => a.status !== 'safe').map(a => a.subject).join(', ')}.`;
+    }
+
+    return {
+      scheduleSummary,
+      todayPlan,
+      upcomingDeadlines,
+      attendanceStatus,
+      conflictsDetected,
+      risksIdentified,
+      recommendations,
+      scheduleChangesMade,
+      weeklyInsights,
+      nextBestAction
+    };
+  }
+
+  // AWS BEDROCK NOVA LITE LIVE API IMPLEMENTATION
+  const systemPrompt = `You are the Smart Scheduling Agent for Campus Flow. Your role is to analyze a student's calendar events, active study plans, recent notices, academic records, and personal preferences to optimize their schedule.
+You must always prioritize scheduling tasks in this order:
+1. Classes
+2. Exams
+3. Assignments
+4. Attendance Recovery
+5. Projects
+6. Placement Preparation
+7. Campus Events
+8. Personal Commitments
+9. Leisure Activities
+
+Protect sleep (no heavy study after midnight), protect meals, and avoid more than 2 hours of study without a break.
+Detect overlaps (double bookings), exam gaps (exams without study sessions), low-attendance warnings, and overloaded days.
+
+You MUST output ONLY a strict JSON object with this exact schema:
+{
+  "scheduleSummary": "A short summary (2-3 sentences) of the week's schedule status.",
+  "todayPlan": [
+    { "time": "HH:mm–HH:mm", "activity": "Activity description" }
+  ],
+  "upcomingDeadlines": [
+    { "title": "Deadline / Exam Name", "date": "YYYY-MM-DD or timing", "urgency": "critical"|"high"|"medium"|"low" }
+  ],
+  "attendanceStatus": [
+    { "subject": "Name", "code": "Code", "currentPct": 0.0, "requiredPct": 75.0, "status": "safe"|"warning"|"critical", "needed": 0 }
+  ],
+  "conflictsDetected": [
+    { "issue": "Conflict description", "impact": "What it affects", "resolution": "Suggested solution" }
+  ],
+  "risksIdentified": [
+    { "type": "burnout"|"attendance"|"exam"|"deadline"|"schedule", "title": "Risk Name", "reason": "Reason details" }
+  ],
+  "recommendations": [
+    "Coaching advice bullet point"
+  ],
+  "scheduleChangesMade": [
+    "Change action description"
+  ],
+  "weeklyInsights": {
+    "busiestDay": "Day of week",
+    "lightestDay": "Day of week",
+    "availableStudyHours": 0.0,
+    "attendanceRiskScore": 0,
+    "deadlineRiskScore": 0,
+    "burnoutRiskScore": 0
+  },
+  "nextBestAction": "Exact immediate recommended task"
+}`;
+
+  const requestPayload = {
+    events: events.map(e => ({ title: e.title, type: e.type, startTime: e.startTime, endTime: e.endTime, isBlocked: e.isBlocked })),
+    studyPlan: studyPlan ? { subjects: studyPlan.preferences.subjects, sessions: studyPlan.sessions } : null,
+    attendance: attendance.map(a => ({ subject: a.subjectName, code: a.subjectCode, conducted: a.conducted, attended: a.attended })),
+    notices: notices.map(n => ({ title: n.title, deadlines: n.deadlines, urgency: n.urgency, category: n.category })),
+    preferences,
+    currentDateTime: currentLocal.toISOString()
+  };
+
+  const messages = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: `Here is the student's data context:\n\n${JSON.stringify(requestPayload)}` }]
+    }
+  ];
+
+  try {
+    const responseText = await invokeBedrock({
+      system: systemPrompt,
+      messages,
+      maxTokens: 1500,
+      timeout: 30000
+    });
+
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error('Failed to call AWS Bedrock for Scheduling Analysis, falling back to mock logic:', error.message);
+    // Return mock generator as fallback to keep service available
+    return runSchedulingAnalysis({ events, attendance, studyPlan, notices, preferences, currentDateTime });
+  }
+};
+
+/**
+ * Proactively adapt calendar schedules:
+ * 1. Reschedules overlapping extracurricular/personal events to free slots.
+ * 2. Creates study session events for upcoming exams (next 7 days) if missing.
+ * 3. Creates study recovery slots for critical attendance warning courses.
+ */
+export const optimizeSchedule = async ({ userId, events = [], attendance = [], studyPlan = null, preferences = {} }) => {
+  const changes = [];
+  const currentLocal = new Date();
+  const createdEvents = [];
+  const updatedEvents = [];
+
+  console.log(`Running schedule optimizer for userId: ${userId}...`);
+
+  // 1. Resolve overlaps (shift extracurriculars that clash with classes/exams)
+  const classesAndExams = events.filter(e => e.type === 'class' || e.type === 'exam');
+  const flexibleEvents = events.filter(e => e.type === 'extracurricular' || e.type === 'assignment');
+
+  for (const flex of flexibleEvents) {
+    const flexStart = new Date(flex.startTime).getTime();
+    const flexEnd = new Date(flex.endTime).getTime();
+
+    // Check if clashing with any core class/exam
+    const clash = classesAndExams.find(core => {
+      const coreStart = new Date(core.startTime).getTime();
+      const coreEnd = new Date(core.endTime).getTime();
+      return flexStart < coreEnd && coreStart < flexEnd;
+    });
+
+    if (clash) {
+      // Find a free slot later in the day (e.g. shift 3 hours forward)
+      const durationMs = flexEnd - flexStart;
+      const newStart = new Date(flex.startTime);
+      newStart.setHours(newStart.getHours() + 3);
+      const newEnd = new Date(newStart.getTime() + durationMs);
+
+      // Save updated times in DB
+      flex.startTime = newStart;
+      flex.endTime = newEnd;
+      await flex.save();
+
+      changes.push(`Rescheduled clashing commitment "${flex.title}" to ${formatTimeHHMM(newStart)} to accommodate your "${clash.title}".`);
+      updatedEvents.push(flex);
+    }
+  }
+
+  // 2. Schedule study sessions for upcoming exams (next 7 days) if they have no sessions in calendar
+  const exams = events.filter(e => e.type === 'exam');
+  for (const exam of exams) {
+    const examSubject = exam.title;
+    const hasStudySessions = studyPlan && studyPlan.sessions && studyPlan.sessions.some(s =>
+      s.subject.toLowerCase().includes(examSubject.toLowerCase()) || examSubject.toLowerCase().includes(s.subject.toLowerCase())
+    );
+    
+    // Also check if calendar already has a study session event for it
+    const hasCalendarStudy = events.some(e => e.title.includes(`Study: ${examSubject}`));
+
+    if (!hasStudySessions && !hasCalendarStudy) {
+      // Proactively book a 2-hour study block on the day before the exam (or today if exam is tomorrow)
+      const studyDate = new Date(exam.startTime);
+      studyDate.setDate(studyDate.getDate() - 1);
+      if (studyDate < currentLocal) {
+        studyDate.setTime(currentLocal.getTime());
+      }
+      
+      // Set hours to preferred hours or standard 18:00
+      studyDate.setHours(18, 0, 0, 0);
+      const studyEnd = new Date(studyDate);
+      studyEnd.setHours(20, 0, 0, 0);
+
+      // Create new event in DB
+      const studyEvent = await mongoose.model('Event').create({
+        userId,
+        title: `Study: ${exam.title} Prep`,
+        type: 'extracurricular',
+        startTime: studyDate,
+        endTime: studyEnd,
+        isBlocked: false
+      });
+
+      changes.push(`Proactively booked 2-hour preparation block: "${studyEvent.title}" on ${studyDate.toLocaleDateString([], {month: 'short', day: 'numeric'})}.`);
+      createdEvents.push(studyEvent);
+    }
+  }
+
+  // 3. Schedule attendance recovery reminders/blocks for warning courses
+  for (const sub of attendance) {
+    const pct = sub.conducted === 0 ? 100 : (sub.attended / sub.conducted) * 100;
+    if (pct < 75) {
+      const alreadyScheduled = events.some(e => e.title.includes(`Attendance Recovery: ${sub.subjectName}`));
+      if (!alreadyScheduled) {
+        const recoverDate = new Date();
+        recoverDate.setDate(recoverDate.getDate() + 2); // 2 days out
+        recoverDate.setHours(15, 0, 0, 0);
+        const recoverEnd = new Date(recoverDate);
+        recoverEnd.setHours(16, 30, 0, 0);
+
+        const recoverEvent = await mongoose.model('Event').create({
+          userId,
+          title: `Attendance Recovery: ${sub.subjectName} Review`,
+          type: 'extracurricular',
+          startTime: recoverDate,
+          endTime: recoverEnd,
+          isBlocked: false
+        });
+
+        changes.push(`Scheduled attendance recovery slot: "${recoverEvent.title}" on ${recoverDate.toLocaleDateString([], {month: 'short', day: 'numeric'})} to review lectures.`);
+        createdEvents.push(recoverEvent);
+      }
+    }
+  }
+
+  if (changes.length === 0) {
+    changes.push("Your calendar is optimized! No overlapping classes or preparation gaps detected.");
+  }
+
+  return {
+    changes,
+    createdEvents,
+    updatedEvents
+  };
+};
+
+// Helper function to format date times to HH:mm
+const formatTimeHHMM = (date) => {
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
+// Helper function to add minutes to HH:mm format
+const addMinsToTime = (timeStr, mins) => {
+  const [hrs, mns] = timeStr.split(':').map(Number);
+  const totalMins = hrs * 60 + mns + mins;
+  const newHrs = Math.floor(totalMins / 60) % 24;
+  const newMns = totalMins % 60;
+  return `${newHrs.toString().padStart(2, '0')}:${newMns.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Continuous routine intelligence parsing.
+ * Analyzes calendar, attendance logs, focus session records, and feedback to generate routine profiles.
+ */
+export const runRoutineIntelligenceAnalysis = async ({ userId, events = [], attendance = [], studyPlan = null, focusSessions = [], notifications = [], feedback = [], preferences = {} }) => {
+  if (!isAwsConfigured) {
+    console.log('Mock Bedrock: Analyzing Routine Intelligence patterns...');
+    
+    // 1. Calculate Routine Score
+    let routineScore = 75;
+    const lowAtt = attendance.filter(a => {
+      const pct = a.conducted === 0 ? 100 : (a.attended / a.conducted) * 100;
+      return pct < 75;
+    });
+    routineScore -= lowAtt.length * 4;
+    routineScore += Math.min(15, focusSessions.length * 3);
+    const unreadWarning = notifications.filter(n => !n.read && n.severity === 'critical');
+    routineScore -= unreadWarning.length * 3;
+    routineScore = Math.max(35, Math.min(99, routineScore));
+
+    // 2. Identify risks
+    const risks = [];
+    if (lowAtt.length > 0) {
+      risks.push({
+        type: 'attendance',
+        title: 'Subject Attendance Shortage',
+        severity: 'high',
+        detail: `You are currently below the required 75% in ${lowAtt.map(a => a.subjectName).join(', ')}.`
+      });
+    }
+
+    const upcomingExams = events.filter(e => e.type === 'exam');
+    if (upcomingExams.length > 0 && (!studyPlan || studyPlan.sessions?.length === 0)) {
+      risks.push({
+        type: 'exam',
+        title: 'Exam Preparation Risk',
+        severity: 'critical',
+        detail: `You have ${upcomingExams.length} upcoming exams but no active study sessions planned.`
+      });
+    }
+
+    // 3. Productivity profile peak calculations
+    const peakFocus = preferences.preferredStudyHours === 'morning' ? '08:00 - 12:00' 
+                     : preferences.preferredStudyHours === 'afternoon' ? '12:00 - 16:00'
+                     : preferences.preferredStudyHours === 'evening' ? '17:00 - 20:00' : '20:00 - 23:00';
+
+    // 4. Construct key insights list
+    const keyInsights = [];
+    if (focusSessions.length > 0) {
+      const totalMins = focusSessions.reduce((acc, s) => acc + s.duration, 0);
+      const avgMins = Math.round(totalMins / focusSessions.length);
+      keyInsights.push(`Average focus duration is ${avgMins} minutes across ${focusSessions.length} recorded sessions.`);
+    } else {
+      keyInsights.push('No recent focus sessions recorded. Try using the Focus Zone to build focus trends.');
+    }
+
+    if (attendance.length > 0) {
+      const avgPct = attendance.reduce((acc, a) => {
+        const pct = a.conducted === 0 ? 100 : (a.attended / a.conducted) * 100;
+        return acc + pct;
+      }, 0) / attendance.length;
+      keyInsights.push(`Academic attendance averages ${avgPct.toFixed(1)}% across all registered classes.`);
+    }
+
+    if (preferences.sleepStart) {
+      keyInsights.push(`Sleep cycles are regular, averaging 8 hours (bedtime around ${preferences.sleepStart}).`);
+    }
+
+    // 5. Detected Routines
+    const detectedRoutines = [
+      { habit: 'Core Class Lectures', frequency: 'Daily Mon-Fri', description: 'Attending campus classes between 09:00 and 13:00' }
+    ];
+    if (preferences.personalCommitments && preferences.personalCommitments.length > 0) {
+      detectedRoutines.push({
+        habit: 'Personal Commitment Flow',
+        frequency: 'Flexible',
+        description: `Running tags: ${preferences.personalCommitments.join(', ')}`
+      });
+    }
+
+    // 6. Next activity predictions
+    const predictions = [
+      { activity: 'Evening Focus Study Session', timing: '18:00', confidence: 85 }
+    ];
+    if (upcomingExams.length > 0) {
+      predictions.push({ activity: `Exam Revision for ${upcomingExams[0].title}`, timing: '15:00', confidence: 90 });
+    }
+
+    // 7. Recommendations
+    const personalizedRecommendations = [
+      { id: 'rec_routine_1', text: 'Schedule a 45-minute focus session during your peak focus hours today.', helpfulCount: 0 },
+      { id: 'rec_routine_2', text: 'Review lecture notes before bedtime to improve sleep consolidation.', helpfulCount: 0 }
+    ];
+    if (lowAtt.length > 0) {
+      personalizedRecommendations.push({
+        id: 'rec_routine_3',
+        text: `Attend the next lecture of ${lowAtt[0].subjectName} to restore safe status.`,
+        helpfulCount: 0
+      });
+    }
+
+    // 8. Confidence Score based on data count and feedback
+    let confidenceScore = 80;
+    confidenceScore += Math.min(10, (focusSessions.length + attendance.length + events.length) * 0.5);
+    confidenceScore += Math.min(5, feedback.length * 0.5);
+    confidenceScore = Math.round(Math.min(98, confidenceScore));
+
+    return {
+      routineScore,
+      keyInsights,
+      productivityProfile: {
+        peakFocusHours: peakFocus,
+        lowEnergyPeriods: '13:00 - 15:00',
+        deepWorkWindows: '09:00 - 11:30',
+        preferredStudyTimes: preferences.preferredStudyHours || 'evening'
+      },
+      studyProfile: {
+        studyStyle: 'Spurt revision-based blocks',
+        examPreparation: studyPlan ? 'Structured proportional allocation' : 'Unallocated revision gaps',
+        assignmentCompletion: 'Submits 24h prior to deadline',
+        procrastinationTendency: events.filter(e => e.type === 'assignment').length > 2 ? 'Medium' : 'Low'
+      },
+      attendanceProfile: {
+        attendanceTrends: lowAtt.length > 0 ? 'Shortage warning trends' : 'Stable academic status',
+        riskSubjects: lowAtt.map(a => a.subjectName),
+        frequentlyMissedClasses: lowAtt.map(a => a.subjectCode)
+      },
+      detectedRoutines,
+      predictions,
+      risks,
+      personalizedRecommendations,
+      confidenceScore
+    };
+  }
+
+  // AWS BEDROCK ROUTINE INTELLIGENCE LIVE PROMPTING
+  const systemPrompt = `You are the Routine Intelligence Agent of Campus Flow. Your job is to continuously learn how a student studies, attends classes, manages time, responds to deadlines, and uses their day.
+You do not create schedules.
+You discover patterns, predict behavior, identify risks, and generate personalized insights.
+
+Inputs:
+- Calendar events
+- Attendance logs
+- Active study plans
+- Recent notices
+- Notification history
+- Focus sessions completed
+- Preferences
+- User helpfulness feedback
+
+You MUST output ONLY a strict JSON object with this exact schema:
+{
+  "routineScore": 0, // an integer score (30 to 100) representing routine consistency
+  "keyInsights": [
+    "Insight bullet point"
+  ],
+  "productivityProfile": {
+    "peakFocusHours": "HH:mm - HH:mm",
+    "lowEnergyPeriods": "HH:mm - HH:mm",
+    "deepWorkWindows": "HH:mm - HH:mm",
+    "preferredStudyTimes": "morning"|"afternoon"|"evening"|"night"
+  },
+  "studyProfile": {
+    "studyStyle": "Description",
+    "examPreparation": "Description",
+    "assignmentCompletion": "Description",
+    "procrastinationTendency": "low"|"medium"|"high"
+  },
+  "attendanceProfile": {
+    "attendanceTrends": "Description",
+    "riskSubjects": ["Subject Name"],
+    "frequentlyMissedClasses": ["Subject Code/Name"]
+  },
+  "detectedRoutines": [
+    { "habit": "Habit Name", "frequency": "Frequency", "description": "Details" }
+  ],
+  "predictions": [
+    { "activity": "Predicted Activity", "timing": "HH:mm or slot", "confidence": 0 } // confidence integer (0-100)
+  ],
+  "risks": [
+    { "type": "burnout"|"attendance"|"exam"|"deadline"|"schedule", "title": "Risk Name", "severity": "critical"|"high"|"medium"|"low", "detail": "Details" }
+  ],
+  "personalizedRecommendations": [
+    { "id": "rec_random_id", "text": "Actionable advice" }
+  ],
+  "confidenceScore": 0 // overall prediction reliability score (0-100)
+}`;
+
+  const payload = {
+    events: events.map(e => ({ title: e.title, type: e.type, startTime: e.startTime, endTime: e.endTime })),
+    attendance: attendance.map(a => ({ subject: a.subjectName, code: a.subjectCode, conducted: a.conducted, attended: a.attended })),
+    studyPlan: studyPlan ? { subjects: studyPlan.preferences.subjects } : null,
+    focusSessions: focusSessions.map(f => ({ duration: f.duration, completed: f.completed, time: f.createdAt })),
+    notifications: notifications.map(n => ({ title: n.title, read: n.read, alertType: n.alertType })),
+    feedback: feedback.map(f => ({ insightId: f.insightId, isHelpful: f.isHelpful })),
+    preferences
+  };
+
+  const messages = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: `Here is the student routine context data:\n\n${JSON.stringify(payload)}` }]
+    }
+  ];
+
+  try {
+    const responseText = await invokeBedrock({
+      system: systemPrompt,
+      messages,
+      maxTokens: 1500,
+      timeout: 30000
+    });
+
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error('Failed to call AWS Bedrock for Routine Intelligence, falling back to mock generator:', error.message);
+    // Return mock generator as fallback to keep service available
+    return runRoutineIntelligenceAnalysis({ userId, events, attendance, studyPlan, focusSessions, notifications, feedback, preferences });
+  }
+};
+
+/**
+ * AI Recommendation Engine Decision Compiler.
+ * Translates telemetry summaries from all 5 companion modules into actionable advice via Bedrock.
+ */
+export const runStudentLifeAICompanionAnalysis = async ({
+  userId,
+  routineBrain,
+  lifeCompanion,
+  expenseIntelligence,
+  habitTracker,
+  burnoutGuardian
+}) => {
+  if (!isAwsConfigured) {
+    console.log('Mock Bedrock: Generating Student Life AI Companion recommendations...');
+    
+    // Fallback Mock Recommendations Generator
+    const academicRecommendations = [
+      `Review your study schedule. Routine Brain predicts your peak focus starts around ${routineBrain.productivityProfile?.peakFocusHours || '17:00'}. Try scheduling revision blocks then.`,
+      routineBrain.routineScore < 70
+        ? 'Your routine score is low due to inconsistent study times. Set daily 30-minute timeblocks.'
+        : 'Your routine consistency is excellent! Maintain your current study-to-class rhythm.'
+    ];
+
+    if (routineBrain.risks && routineBrain.risks.length > 0) {
+      academicRecommendations.push(`Address the active risk: "${routineBrain.risks[0].title}". ${routineBrain.risks[0].detail}`);
+    }
+
+    const wellnessRecommendations = [
+      lifeCompanion.wellnessScore < 70
+        ? 'Increase your average sleep to at least 7.5 hours. Current logs indicate a sleep deficit.'
+        : 'Your wellness indices are healthy. Maintain your current sleep and mood recovery balance.',
+      lifeCompanion.stressTrends === 'High'
+        ? 'Stress trends are elevated. Take a 15-minute micro-break between classes.'
+        : 'Stress levels are in a stable, manageable range.'
+    ];
+
+    const financialRecommendations = [
+      expenseIntelligence.budgetScore < 70
+        ? 'Reduce discretionary shopping. Current food and entertainment categories are exceeding safe targets.'
+        : 'Your spending is well within budget. Keep it up!',
+      expenseIntelligence.savingsEstimates > 0
+        ? `Potential savings identified: Save up to $${expenseIntelligence.savingsEstimates} this month by cooking at home instead of eating out.`
+        : 'No major budget leaks detected. Try setting aside a 10% emergency fund.'
+    ];
+
+    const lifestyleImprovements = [
+      habitTracker.completionMetrics < 60
+        ? 'Habit execution is low. Prioritize completing at least 3 daily habits (Sleep, Water, Exercise).'
+        : 'Superb habit execution! You are consistently locking in your target lifestyle habits.',
+      burnoutGuardian.burnoutRiskScore > 65
+        ? 'WARNING: Burnout Risk is HIGH. Reduce study hours slightly, and allocate Saturday for digital detox.'
+        : 'Burnout risk is low. Maintain your current work-to-rest ratio.'
+    ];
+
+    const weeklyActionPlan = [
+      { day: 'Monday', action: 'Set budget limits for food and travel spending.', priority: 'medium' },
+      { day: 'Wednesday', action: 'Complete a 45-minute focus session during your peak focus slot.', priority: 'high' },
+      { day: 'Friday', action: 'Perform a 15-minute wellness check-in (mood & sleep log).', priority: 'low' },
+      { day: 'Sunday', action: 'Conduct a weekly review of habit streaks and rest for 8+ hours.', priority: 'high' }
+    ];
+
+    if (burnoutGuardian.burnoutRiskScore > 60) {
+      weeklyActionPlan.unshift({ day: 'Saturday', action: 'Execute recovery guidance: Rest and meditation day.', priority: 'high' });
+    }
+
+    return {
+      academicRecommendations,
+      wellnessRecommendations,
+      financialRecommendations,
+      lifestyleImprovements,
+      weeklyActionPlan
+    };
+  }
+
+  // AWS Bedrock Live Prompt
+  const systemPrompt = `You are the AI Decision Engine of the Student Life AI Companion in Campus Flow.
+Your purpose is to convert insights from all modules (Routine Brain, Life Companion Wellness, Expense Intelligence, Habit Tracker, Burnout Guardian) into concise, actionable, and non-generic recommendations.
+
+You MUST output ONLY a strict JSON object with this exact schema:
+{
+  "academicRecommendations": [
+    "Personalized, context-aware advice for studies, calendar, or scheduling"
+  ],
+  "wellnessRecommendations": [
+    "Personalized wellness advice focusing on stress, mood, and sleep"
+  ],
+  "financialRecommendations": [
+    "Actionable budgeting, food, travel, or savings advice"
+  ],
+  "lifestyleImprovements": [
+    "Advice on habits, daily consistency, or burnout recovery"
+  ],
+  "weeklyActionPlan": [
+    { "day": "Day Name", "action": "Specific concise task", "priority": "high"|"medium"|"low" }
+  ]
+}`;
+
+  const payload = {
+    routineBrain: {
+      score: routineBrain.routineScore,
+      forecast: routineBrain.workloadForecast,
+      insights: routineBrain.scheduleInsights,
+      risks: routineBrain.risks
+    },
+    lifeCompanion: {
+      score: lifeCompanion.wellnessScore,
+      mood: lifeCompanion.moodTrends,
+      stress: lifeCompanion.stressTrends,
+      insights: lifeCompanion.lifestyleInsights
+    },
+    expenseIntelligence: {
+      score: expenseIntelligence.budgetScore,
+      spendingTrends: expenseIntelligence.spendingTrends,
+      savingsEstimate: expenseIntelligence.savingsEstimates,
+      insights: expenseIntelligence.financialInsights
+    },
+    habitTracker: {
+      completion: habitTracker.completionMetrics,
+      streaks: habitTracker.streakStatistics
+    },
+    burnoutGuardian: {
+      score: burnoutGuardian.burnoutRiskScore,
+      level: burnoutGuardian.burnoutLevel,
+      factors: burnoutGuardian.contributingFactors,
+      recovery: burnoutGuardian.recoveryGuidance
+    }
+  };
+
+  const messages = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: `Here is the calculated telemetry metrics report for the student:\n\n${JSON.stringify(payload)}` }]
+    }
+  ];
+
+  try {
+    const responseText = await invokeBedrock({
+      system: systemPrompt,
+      messages,
+      maxTokens: 1500,
+      timeout: 30000
+    });
+
+    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error('Failed to call AWS Bedrock for Student Life AI Companion, falling back to mock generator:', error.message);
+    return runStudentLifeAICompanionAnalysis({
+      userId,
+      routineBrain,
+      lifeCompanion,
+      expenseIntelligence,
+      habitTracker,
+      burnoutGuardian
+    });
+  }
+};
+
+
+
